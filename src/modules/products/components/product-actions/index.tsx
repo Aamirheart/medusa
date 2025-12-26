@@ -12,6 +12,8 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import ProductPrice from "../product-price"
 import MobileActions from "./mobile-actions"
 import { useRouter } from "next/navigation"
+// Import the Direct Checkout component
+import DirectCheckout from "../direct-checkout"
 
 type ProductActionsProps = {
   product: HttpTypes.StoreProduct
@@ -30,6 +32,7 @@ const optionsAsKeymap = (
 
 export default function ProductActions({
   product,
+  region, // Added region here so we can pass it to checkout
   disabled,
 }: ProductActionsProps) {
   const router = useRouter()
@@ -38,6 +41,10 @@ export default function ProductActions({
 
   const [options, setOptions] = useState<Record<string, string | undefined>>({})
   const [isAdding, setIsAdding] = useState(false)
+  
+  // State to control the Direct Checkout Modal
+  const [showDirectCheckout, setShowDirectCheckout] = useState(false)
+
   const countryCode = useParams().countryCode as string
 
   // If there is only 1 variant, preselect the options
@@ -135,6 +142,12 @@ export default function ProductActions({
     setIsAdding(false)
   }
 
+  // Handle the "Buy Now" Direct Checkout flow
+  const handleBuyNow = () => {
+    if (!selectedVariant?.id) return
+    setShowDirectCheckout(true)
+  }
+
   return (
     <>
       <div className="flex flex-col gap-y-2" ref={actionsRef}>
@@ -162,6 +175,7 @@ export default function ProductActions({
 
         <ProductPrice product={product} variant={selectedVariant} />
 
+        {/* Standard Add to Cart Button */}
         <Button
           onClick={handleAddToCart}
           disabled={
@@ -182,6 +196,24 @@ export default function ProductActions({
             ? "Out of stock"
             : "Add to cart"}
         </Button>
+
+        {/* New Buy Now Button */}
+        <Button
+          onClick={handleBuyNow}
+          disabled={
+            !inStock ||
+            !selectedVariant ||
+            !!disabled ||
+            isAdding ||
+            !isValidVariant
+          }
+          variant="secondary"
+          className="w-full h-10"
+          data-testid="buy-now-button"
+        >
+          Buy Now
+        </Button>
+
         <MobileActions
           product={product}
           variant={selectedVariant}
@@ -193,6 +225,17 @@ export default function ProductActions({
           show={!inView}
           optionsDisabled={!!disabled || isAdding}
         />
+
+        {/* Render Direct Checkout Modal if state is active */}
+        {showDirectCheckout && selectedVariant && (
+          <DirectCheckout 
+            product={product}
+            variant={selectedVariant}
+            countryCode={countryCode}
+            region={region}
+            close={() => setShowDirectCheckout(false)}
+          />
+        )}
       </div>
     </>
   )
