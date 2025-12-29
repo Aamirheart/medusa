@@ -1,20 +1,26 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Button, Input, Heading, Text } from "@medusajs/ui"
+import { Button, Input, Heading, Text, clx } from "@medusajs/ui"
 import { HttpTypes } from "@medusajs/types"
 import { 
-  addToCart, 
+  createInstantCart, 
   updateCart, 
   setShippingMethod, 
   initiatePaymentSession, 
   listCartOptions,
-  applyPromotions,
-  retrieveCart 
+  retrieveCart,
+  applyPromotions // <--- Imported this
 } from "@lib/data/cart"
 import { CashfreePaymentButton } from "@modules/checkout/components/payment-button/cashfree-payment-button"
 import { formatAmount } from "@lib/util/money"
 import Spinner from "@modules/common/icons/spinner"
+
+type EnhancedCart = HttpTypes.StoreCart & {
+  payment_collection?: {
+    payment_sessions?: HttpTypes.StorePaymentSession[]
+  }
+}
 
 type DirectCheckoutProps = {
   product: HttpTypes.StoreProduct
@@ -31,13 +37,16 @@ export default function DirectCheckout({
   region,
   close 
 }: DirectCheckoutProps) {
-  // State management
   const [step, setStep] = useState<"address" | "payment">("address")
   const [loading, setLoading] = useState(false)
-  const [cart, setCart] = useState<HttpTypes.StoreCart | null>(null)
-  const [couponCode, setCouponCode] = useState("")
+  const [couponLoading, setCouponLoading] = useState(false)
+  const [instantCartId, setInstantCartId] = useState<string | null>(null)
+  const [cart, setCart] = useState<EnhancedCart | null>(null)
   
-  // Form Data
+  // Coupon State
+  const [couponCode, setCouponCode] = useState("")
+  const [couponMessage, setCouponMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null)
+
   const [email, setEmail] = useState("")
   const [address, setAddress] = useState({
     first_name: "",
@@ -49,18 +58,20 @@ export default function DirectCheckout({
     country_code: countryCode,
   })
 
-  // 1. Initialize: Add item to cart
+  // 1. Initialize "Ghost Cart"
   useEffect(() => {
     const init = async () => {
       setLoading(true)
       try {
-        await addToCart({
+        const newCart = await createInstantCart({
           variantId: variant.id,
           quantity: 1,
           countryCode
         })
-        const cartRes = await retrieveCart()
-        setCart(cartRes)
+        if (newCart) {
+            setInstantCartId(newCart.id)
+            setCart(newCart)
+        }
       } catch (e) {
         console.error("Init Error:", e)
       } finally {
@@ -70,52 +81,44 @@ export default function DirectCheckout({
     init()
   }, [variant.id, countryCode])
 
-  // 2. Handle Address Submission (UPDATED WITH DEBUGGING)
+  // 2. Handle Address & Move to Payment
   const handleAddressSubmit = async () => {
     setLoading(true)
     try {
-      if (!cart) throw new Error("Cart not initialized")
+      if (!instantCartId) throw new Error("Cart not initialized")
 
-      console.log("1. Updating Address...", { email, address, countryCode })
-      
-      // Step A: Update Address
+      // A. Update Address
       await updateCart({
         email,
         shipping_address: { ...address, country_code: countryCode },
         billing_address: { ...address, country_code: countryCode }
-      })
+      }, instantCartId)
 
-      // Step B: Fetch Shipping Options
-      console.log("2. Fetching Shipping Options...")
-      const result = await listCartOptions()
+      // B. Shipping
+      const result = await listCartOptions(instantCartId)
       const options = result.shipping_options || []
-
-      console.log("Shipping Options Found:", options)
-
-      if (options.length === 0) {
-        throw new Error("No Shipping Options found for this address. Go to Medusa Admin -> Settings -> Regions and add a Shipping Option.")
-      }
-
-      // Step C: Select the first shipping option
-      console.log("3. Selecting Shipping Method:", options[0].id)
+      if (options.length === 0) throw new Error("No Shipping Options found.")
+      
       await setShippingMethod({ 
-        cartId: cart.id, 
+        cartId: instantCartId, 
         shippingMethodId: options[0].id 
       })
 
-      // Step D: Initialize Payment Session
-      console.log("4. Initializing Payment Session (Cashfree)...")
-      await initiatePaymentSession(cart, { provider_id: "cashfree" })
-      
-      // Step E: Refresh Cart
-      const updatedCart = await retrieveCart()
-      setCart(updatedCart)
-      setStep("payment")
+      // C. Get Fresh Cart & Init Payment
+      const freshCart = await retrieveCart(instantCartId, undefined, true)
 
+      if (freshCart) {
+          console.log("💰 Init Payment for:", freshCart.total)
+          await initiatePaymentSession(freshCart, { provider_id: "pp_cashfree_cashfree" })
+          
+          // Refresh again to get payment sessions
+          const finalCart = await retrieveCart(instantCartId, undefined, true)
+          setCart(finalCart)
+          setStep("payment")
+      }
     } catch (e: any) {
-      console.error("❌ Checkout Error:", e)
-      // Show the REAL error message from the backend
-      alert(`Checkout Failed: ${e.message || "Unknown error"}`)
+      console.error("Checkout Error:", e)
+      alert(`Checkout Failed: ${e.message}`)
     } finally {
       setLoading(false)
     }
@@ -123,22 +126,33 @@ export default function DirectCheckout({
 
   // 3. Handle Coupon Application
   const handleApplyCoupon = async () => {
-    if (!couponCode) return
-    setLoading(true)
+    if (!couponCode || !instantCartId) return
+    setCouponLoading(true)
+    setCouponMessage(null)
+    
     try {
-      await applyPromotions([couponCode])
-      const updatedCart = await retrieveCart()
-      setCart(updatedCart)
-      setCouponCode("") 
-    } catch (e) {
-      alert("Invalid Coupon Code")
+      // Apply to the specific instantCartId
+      await applyPromotions([couponCode], instantCartId)
+      
+      // Refresh cart to see new total
+      const updatedCart = await retrieveCart(instantCartId, undefined, true)
+      
+      if (updatedCart) {
+        setCart(updatedCart)
+        setCouponMessage({ text: "Coupon applied!", type: 'success' })
+        setCouponCode("") // Clear input on success
+      }
+    } catch (e: any) {
+      setCouponMessage({ text: e.message || "Invalid coupon code", type: 'error' })
     } finally {
-      setLoading(false)
+      setCouponLoading(false)
     }
   }
 
   const getCashfreeSession = () => {
-    return cart?.payment_sessions?.find(s => s.provider_id === "cashfree")
+    if (!cart) return undefined
+    let sessions = cart.payment_collection?.payment_sessions || cart.payment_sessions
+    return sessions?.find(s => s.provider_id === "pp_cashfree_cashfree" || s.provider_id === "cashfree")
   }
 
   if (!cart && loading) return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><Spinner /></div>
@@ -152,7 +166,7 @@ export default function DirectCheckout({
           {step === "address" ? "Shipping Details" : "Secure Payment"}
         </Heading>
 
-        {/* --- STEP 1: ADDRESS FORM --- */}
+        {/* --- STEP 1: ADDRESS --- */}
         {step === "address" && (
           <div className="flex flex-col gap-4">
              <div className="grid grid-cols-2 gap-4">
@@ -167,63 +181,80 @@ export default function DirectCheckout({
             </div>
             <Input placeholder="Phone" value={address.phone} onChange={(e) => setAddress({...address, phone: e.target.value})} />
             
-            <Button 
-              onClick={handleAddressSubmit} 
-              isLoading={loading}
-              className="mt-4 w-full"
-            >
+            <Button onClick={handleAddressSubmit} isLoading={loading} className="mt-4 w-full">
               Continue to Payment
             </Button>
           </div>
         )}
 
-        {/* --- STEP 2: PAYMENT & SUMMARY --- */}
+        {/* --- STEP 2: PAYMENT & COUPON --- */}
         {step === "payment" && cart && (
           <div className="flex flex-col gap-4">
-            {/* Order Summary */}
+            
+            {/* Summary Box */}
             <div className="bg-gray-50 p-4 rounded-md text-sm border">
-              <div className="flex justify-between mb-2">
-                <span className="font-semibold text-gray-900">{product.title}</span>
-                <span>{formatAmount({ amount: variant.calculated_price?.calculated_amount || 0, region, includeTaxes: false })}</span>
-              </div>
-              <div className="flex justify-between text-gray-500">
-                <span>Shipping</span>
-                <span>{formatAmount({ amount: cart.shipping_total || 0, region, includeTaxes: false })}</span>
-              </div>
-              <div className="flex justify-between font-bold text-lg mt-2 border-t pt-2 text-gray-900">
+               <div className="flex justify-between mb-1">
+                 <span className="text-gray-600">Subtotal</span>
+                 <span>{formatAmount({ amount: cart.subtotal || 0, region, includeTaxes: false })}</span>
+               </div>
+               <div className="flex justify-between mb-1">
+                 <span className="text-gray-600">Shipping</span>
+                 <span>{formatAmount({ amount: cart.shipping_total || 0, region, includeTaxes: false })}</span>
+               </div>
+               {cart.discount_total > 0 && (
+                 <div className="flex justify-between mb-1 text-green-600">
+                   <span>Discount</span>
+                   <span>- {formatAmount({ amount: cart.discount_total || 0, region, includeTaxes: false })}</span>
+                 </div>
+               )}
+               <div className="flex justify-between font-bold text-lg mt-2 pt-2 border-t border-gray-200 text-gray-900">
                 <span>Total</span>
                 <span>{formatAmount({ amount: cart.total || 0, region, includeTaxes: true })}</span>
               </div>
             </div>
 
-            {/* Coupon Code Section */}
-            <div className="flex gap-2">
-              <Input 
-                placeholder="Discount Code" 
-                value={couponCode} 
-                onChange={(e) => setCouponCode(e.target.value)} 
-              />
-              <Button variant="secondary" onClick={handleApplyCoupon} isLoading={loading}>
-                Apply
-              </Button>
+            {/* Coupon Section */}
+            <div>
+              <Text className="text-small-regular text-gray-700 mb-2">Discount Code</Text>
+              <div className="flex gap-2">
+                <Input 
+                  placeholder="Enter code" 
+                  value={couponCode} 
+                  onChange={(e) => setCouponCode(e.target.value)} 
+                />
+                <Button 
+                  variant="secondary" 
+                  onClick={handleApplyCoupon} 
+                  isLoading={couponLoading}
+                  disabled={!couponCode}
+                >
+                  Apply
+                </Button>
+              </div>
+              {couponMessage && (
+                <Text className={clx("text-small-regular mt-2", {
+                  "text-green-600": couponMessage.type === 'success',
+                  "text-red-500": couponMessage.type === 'error'
+                })}>
+                  {couponMessage.text}
+                </Text>
+              )}
             </div>
-            
-            {/* Display Applied Promotions */}
-            {cart.promotions && cart.promotions.length > 0 && (
-               <div className="text-green-600 text-sm font-medium bg-green-50 p-2 rounded">
-                 Coupon applied: {cart.promotions[0].code}
-               </div>
-            )}
 
-            {/* Cashfree Payment Button */}
+            {/* Payment Button */}
             {getCashfreeSession() ? (
               <CashfreePaymentButton session={{ data: getCashfreeSession()?.data }} cart={cart} />
             ) : (
-              <Text className="text-red-500 font-medium text-center">
-                Payment session not initialized. Please go back.
-              </Text>
+              <div className="text-center">
+                 <Text className="text-red-500 font-medium mb-2">
+                   Payment session not found.
+                 </Text>
+                 <Button variant="secondary" onClick={handleAddressSubmit} size="small">
+                    Retry Payment Load
+                 </Button>
+              </div>
             )}
-
+            
             <button onClick={() => setStep("address")} className="text-sm text-gray-500 underline mt-2 text-center hover:text-gray-900">
               Edit Shipping Address
             </button>
