@@ -10,7 +10,7 @@ import {
   initiatePaymentSession, 
   listCartOptions,
   retrieveCart,
-  applyPromotions // <--- Imported this
+  applyPromotions
 } from "@lib/data/cart"
 import { CashfreePaymentButton } from "@modules/checkout/components/payment-button/cashfree-payment-button"
 import { formatAmount } from "@lib/util/money"
@@ -28,6 +28,7 @@ type DirectCheckoutProps = {
   countryCode: string
   region: HttpTypes.StoreRegion
   close: () => void
+  metadata?: Record<string, any> // <--- Added optional metadata
 }
 
 export default function DirectCheckout({ 
@@ -35,7 +36,8 @@ export default function DirectCheckout({
   variant, 
   countryCode,
   region,
-  close 
+  close,
+  metadata // <--- Destructured
 }: DirectCheckoutProps) {
   const [step, setStep] = useState<"address" | "payment">("address")
   const [loading, setLoading] = useState(false)
@@ -66,7 +68,8 @@ export default function DirectCheckout({
         const newCart = await createInstantCart({
           variantId: variant.id,
           quantity: 1,
-          countryCode
+          countryCode,
+          metadata // <--- Passed to function
         })
         if (newCart) {
             setInstantCartId(newCart.id)
@@ -79,7 +82,7 @@ export default function DirectCheckout({
       }
     }
     init()
-  }, [variant.id, countryCode])
+  }, [variant.id, countryCode, metadata])
 
   // 2. Handle Address & Move to Payment
   const handleAddressSubmit = async () => {

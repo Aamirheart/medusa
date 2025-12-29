@@ -52,7 +52,7 @@ export async function getOrSetCart(countryCode: string) {
     throw new Error(`Region not found for country code: ${countryCode}`)
   }
 
-  let cart = await retrieveCart(undefined, undefined, true) // Force fresh to be safe
+  let cart = await retrieveCart(undefined, undefined, true) 
 
   const headers = {
     ...(await getAuthHeaders()),
@@ -81,15 +81,16 @@ export async function getOrSetCart(countryCode: string) {
   return cart
 }
 
-// ... createInstantCart (Updated to use isFresh) ...
 export async function createInstantCart({
   variantId,
   quantity,
   countryCode,
+  metadata, 
 }: {
   variantId: string
   quantity: number
   countryCode: string
+  metadata?: Record<string, unknown> 
 }) {
   try {
     const region = await getRegion(countryCode)
@@ -107,12 +108,11 @@ export async function createInstantCart({
 
     await sdk.store.cart.createLineItem(
       cart.id,
-      { variant_id: variantId, quantity },
+      { variant_id: variantId, quantity, metadata },
       {},
       headers
     )
 
-    // Return fresh cart
     return await retrieveCart(cart.id, undefined, true)
   } catch (error: any) {
     console.error("Error in createInstantCart:", error)
@@ -254,7 +254,6 @@ export async function setAddresses(currentState: unknown, formData: FormData) {
         const cartId = await getCartId()
         if (!cartId) throw new Error("No cart found")
 
-        // ... (Keep your data mapping logic here) ...
         const data = {
             shipping_address: {
                 first_name: formData.get("shipping_address.first_name"),
@@ -293,23 +292,78 @@ export async function setAddresses(currentState: unknown, formData: FormData) {
     redirect(`/${formData.get("shipping_address.country_code")}/checkout?step=delivery`)
 }
 
+/**
+ * UPDATED: placeOrder with FIXED Auto-Recovery Logic
+ */
 export async function placeOrder(cartId?: string) {
   const id = cartId || (await getCartId())
   if (!id) throw new Error("No existing cart found")
   const headers = { ...(await getAuthHeaders()) }
 
-  const cartRes = await sdk.store.cart.complete(id, {}, headers).catch(medusaError)
-
-  if (cartRes?.type === "order") {
-    const countryCode = cartRes.order.shipping_address?.country_code?.toLowerCase()
-    const cookieCartId = await getCartId()
-    if (cookieCartId === id) {
-      removeCartId()
-    }
-    redirect(`/${countryCode}/order/${cartRes?.order.id}/confirmed`)
+  const completeCart = async () => {
+    return await sdk.store.cart.complete(id, {}, headers)
+      .catch((err) => {
+        throw new Error(err.message || "Cart completion failed")
+      })
   }
 
-  return cartRes.cart
+  try {
+    // 1. First Attempt
+    const cartRes = await completeCart()
+
+    // 2. Handle Success
+    if (cartRes?.type === "order") {
+      const countryCode = cartRes.order.shipping_address?.country_code?.toLowerCase()
+      const cookieCartId = await getCartId()
+      if (cookieCartId === id) {
+        removeCartId()
+      }
+      redirect(`/${countryCode}/order/${cartRes?.order.id}/confirmed`)
+    }
+
+    return cartRes.cart
+
+  } catch (error: any) {
+    console.error("Place Order Attempt 1 Failed:", error.message)
+
+    // 3. AUTO-RECOVERY: Restore Session if Lost
+    if (error.message.includes("Payment sessions are required") || error.message.includes("session")) {
+      console.log("⚠️ Session lost. Attempting to restore Cashfree session...")
+      
+      // Fetch fresh cart
+      const cart = await retrieveCart(id, undefined, true)
+      
+      if (!cart) throw new Error("Cart not found during recovery")
+
+      // Find the Cashfree session
+      const cashfreeSession = 
+        cart.payment_collection?.payment_sessions?.find(s => s.provider_id.includes("cashfree")) ||
+        cart.payment_sessions?.find(s => s.provider_id.includes("cashfree"))
+
+      if (cashfreeSession) {
+        // FIXED: Use initiatePaymentSession to select/refresh the provider
+        // instead of cart.update which doesn't support payment_session_id
+        await initiatePaymentSession(cart, { 
+            provider_id: cashfreeSession.provider_id 
+        })
+        
+        console.log("✅ Session restored. Retrying completion...")
+        
+        // Retry completion
+        const retryRes = await sdk.store.cart.complete(id, {}, headers).catch(medusaError)
+        
+        if (retryRes?.type === "order") {
+          const countryCode = retryRes.order.shipping_address?.country_code?.toLowerCase()
+          removeCartId()
+          redirect(`/${countryCode}/order/${retryRes?.order.id}/confirmed`)
+        }
+        return retryRes.cart
+      }
+    }
+
+    // Rethrow other errors (like "Not Authorized") so frontend retry logic works
+    throw error
+  }
 }
 
 export async function updateRegion(countryCode: string, currentPath: string) {

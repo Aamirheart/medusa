@@ -1,18 +1,23 @@
-// src/modules/checkout/components/payment-button/payment-cashfree.tsx
+//
 import { load } from '@cashfreepayments/cashfree-js';
 import { Button } from "@medusajs/ui"
-import { useState, useEffect } from "react" // Import useEffect
+import { useState, useEffect } from "react"
+import { HttpTypes } from "@medusajs/types"
 
-export const CashfreePaymentButton = ({ session, cart }) => {
+type CashfreeButtonProps = {
+  session: any
+  cart: HttpTypes.StoreCart
+}
+
+export const CashfreePaymentButton = ({ session, cart }: CashfreeButtonProps) => {
   const [loading, setLoading] = useState(false)
   const [cashfree, setCashfree] = useState<any>(null)
 
-  // Initialize Cashfree once on component mount
   useEffect(() => {
     const initCashfree = async () => {
       try {
         const cashfreeInstance = await load({
-          mode: "sandbox" // Ensure this matches your backend environment
+          mode: "sandbox" // Change to "production" in live env
         });
         setCashfree(cashfreeInstance);
       } catch (err) {
@@ -32,9 +37,6 @@ export const CashfreePaymentButton = ({ session, cart }) => {
     }
 
     try {
-      // --- DEBUGGING START ---
-      console.log("Backend Response Data:", session.data);
-
       if (session.data.error) {
         alert(`Backend Error: ${session.data.error}`);
         setLoading(false);
@@ -44,16 +46,20 @@ export const CashfreePaymentButton = ({ session, cart }) => {
       const paymentSessionId = session.data.payment_session_id 
 
       if (!paymentSessionId) {
-        alert("Error: No Session ID found. Check console for details.")
+        alert("Error: No Session ID found.")
         setLoading(false)
         return
       }
-      // --- DEBUGGING END ---
+
+      const countryCode = cart.shipping_address?.country_code?.toLowerCase() || "in"
+
+      // UPDATED: Pass cart_id in the URL
+      const returnUrl = `${window.location.origin}/${countryCode}/payment/callback?cart_id=${cart.id}`
 
       cashfree.checkout({
         paymentSessionId: paymentSessionId,
         redirectTarget: "_self",
-        returnUrl: `${window.location.origin}/order/confirmed`
+        returnUrl: returnUrl 
       })
       
     } catch (error: any) {
@@ -69,7 +75,7 @@ export const CashfreePaymentButton = ({ session, cart }) => {
       isLoading={loading}
       className="w-full mt-4"
       size="large"
-      disabled={!cashfree} // Disable button if SDK isn't loaded
+      disabled={!cashfree} 
     >
       Pay with Cashfree
     </Button>
