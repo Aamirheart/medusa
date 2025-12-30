@@ -12,6 +12,7 @@ type CartTotalsProps = {
     item_subtotal?: number | null
     shipping_subtotal?: number | null
     discount_subtotal?: number | null
+    discount_total?: number | null // Added this field
   }
 }
 
@@ -23,7 +24,11 @@ const CartTotals: React.FC<CartTotalsProps> = ({ totals }) => {
     item_subtotal,
     shipping_subtotal,
     discount_subtotal,
+    discount_total,
   } = totals
+
+  // FIX: Prioritize discount_total
+  const discountAmount = discount_total ?? discount_subtotal ?? 0
 
   return (
     <div>
@@ -40,22 +45,25 @@ const CartTotals: React.FC<CartTotalsProps> = ({ totals }) => {
             {convertToLocale({ amount: shipping_subtotal ?? 0, currency_code })}
           </span>
         </div>
-        {!!discount_subtotal && (
+        
+        {/* FIX: Display Discount if exists */}
+        {!!discountAmount && (
           <div className="flex items-center justify-between">
-            <span>Discount</span>
+            <span className="flex gap-x-1 items-center">Discount</span>
             <span
               className="text-ui-fg-interactive"
               data-testid="cart-discount"
-              data-value={discount_subtotal || 0}
+              data-value={discountAmount}
             >
               -{" "}
               {convertToLocale({
-                amount: discount_subtotal ?? 0,
+                amount: discountAmount,
                 currency_code,
               })}
             </span>
           </div>
         )}
+
         <div className="flex justify-between">
           <span className="flex gap-x-1 items-center ">Taxes</span>
           <span data-testid="cart-taxes" data-value={tax_total || 0}>

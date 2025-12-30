@@ -28,8 +28,10 @@ const Payment = ({
   const [error, setError] = useState<string | null>(null)
   const [cardBrand, setCardBrand] = useState<string | null>(null)
   const [cardComplete, setCardComplete] = useState(false)
+  
+  // FIX 1: Default to first available method if session is lost
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(
-    activeSession?.provider_id ?? ""
+    activeSession?.provider_id ?? availablePaymentMethods?.[0]?.id ?? ""
   )
 
   const searchParams = useSearchParams()
@@ -58,11 +60,44 @@ const Payment = ({
     (name: string, value: string) => {
       const params = new URLSearchParams(searchParams)
       params.set(name, value)
-
       return params.toString()
     },
     [searchParams]
   )
+
+  // FIX 2: AUTO-RECOVERY LOGIC
+  // This detects when the session is lost (due to coupon) and restores it automatically.
+  useEffect(() => {
+    const handleSessionRecovery = async () => {
+      // If we are on the payment step, have methods, but NO active session...
+      if (isOpen && !paidByGiftcard && !activeSession && availablePaymentMethods?.length) {
+        
+        const methodToUse = selectedPaymentMethod || availablePaymentMethods[0].id
+        
+        console.log("Session lost (likely due to coupon). Recovering with:", methodToUse)
+        setIsLoading(true)
+        setError(null)
+        
+        try {
+          // Re-initiate the session
+          await initiatePaymentSession(cart, {
+            provider_id: methodToUse,
+          })
+          
+          // Refresh page data so the UI sees the new session immediately
+          router.refresh()
+          
+        } catch (err) {
+          console.error("Failed to recover payment session:", err)
+          setError("Failed to refresh payment session. Please try again.")
+        } finally {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    handleSessionRecovery()
+  }, [isOpen, activeSession, cart.total, paidByGiftcard, selectedPaymentMethod, availablePaymentMethods, cart, router])
 
   const handleEdit = () => {
     router.push(pathname + "?" + createQueryString("step", "payment"), {
@@ -194,9 +229,12 @@ const Payment = ({
             }
             data-testid="submit-payment-button"
           >
-            {!activeSession && isStripeLike(selectedPaymentMethod)
-              ? " Enter card details"
-              : "Continue to review"}
+             {isLoading 
+              ? "Processing..." 
+              : !activeSession && isStripeLike(selectedPaymentMethod)
+                ? "Enter card details"
+                : "Continue to review"
+            }
           </Button>
         </div>
 

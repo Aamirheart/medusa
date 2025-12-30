@@ -16,6 +16,7 @@ import { CashfreePaymentButton } from "@modules/checkout/components/payment-butt
 import { formatAmount } from "@lib/util/money"
 import Spinner from "@modules/common/icons/spinner"
 
+// Helper type to ensure we can access payment_collection
 type EnhancedCart = HttpTypes.StoreCart & {
   payment_collection?: {
     payment_sessions?: HttpTypes.StorePaymentSession[]
@@ -28,7 +29,7 @@ type DirectCheckoutProps = {
   countryCode: string
   region: HttpTypes.StoreRegion
   close: () => void
-  metadata?: Record<string, any> // <--- Added optional metadata
+  metadata?: Record<string, any>
 }
 
 export default function DirectCheckout({ 
@@ -37,7 +38,7 @@ export default function DirectCheckout({
   countryCode,
   region,
   close,
-  metadata // <--- Destructured
+  metadata 
 }: DirectCheckoutProps) {
   const [step, setStep] = useState<"address" | "payment">("address")
   const [loading, setLoading] = useState(false)
@@ -69,7 +70,7 @@ export default function DirectCheckout({
           variantId: variant.id,
           quantity: 1,
           countryCode,
-          metadata // <--- Passed to function
+          metadata 
         })
         if (newCart) {
             setInstantCartId(newCart.id)
@@ -127,20 +128,35 @@ export default function DirectCheckout({
     }
   }
 
-  // 3. Handle Coupon Application
+  // 3. Handle Coupon Application (UPDATED with Auto-Recovery)
   const handleApplyCoupon = async () => {
     if (!couponCode || !instantCartId) return
     setCouponLoading(true)
     setCouponMessage(null)
     
     try {
-      // Apply to the specific instantCartId
+      // A. Apply to the specific instantCartId
       await applyPromotions([couponCode], instantCartId)
       
-      // Refresh cart to see new total
-      const updatedCart = await retrieveCart(instantCartId, undefined, true)
+      // B. Fetch updated cart 
+      // NOTE: Medusa deletes the session when total changes
+      let updatedCart = await retrieveCart(instantCartId, undefined, true) as EnhancedCart
       
       if (updatedCart) {
+        // C. AUTO-RECOVERY: Check if session is lost
+        const sessions = updatedCart.payment_collection?.payment_sessions || updatedCart.payment_sessions
+        const hasSession = sessions?.some((s: any) => s.provider_id === "pp_cashfree_cashfree" || s.provider_id === "cashfree")
+
+        if (!hasSession) {
+             console.log("♻️ Coupon invalidated session. Re-initiating Cashfree...")
+             
+             // Re-initiate the session with the new price
+             await initiatePaymentSession(updatedCart, { provider_id: "pp_cashfree_cashfree" })
+             
+             // D. Fetch again to get the NEW session
+             updatedCart = await retrieveCart(instantCartId, undefined, true) as EnhancedCart
+        }
+
         setCart(updatedCart)
         setCouponMessage({ text: "Coupon applied!", type: 'success' })
         setCouponCode("") // Clear input on success
@@ -155,7 +171,7 @@ export default function DirectCheckout({
   const getCashfreeSession = () => {
     if (!cart) return undefined
     let sessions = cart.payment_collection?.payment_sessions || cart.payment_sessions
-    return sessions?.find(s => s.provider_id === "pp_cashfree_cashfree" || s.provider_id === "cashfree")
+    return sessions?.find((s: any) => s.provider_id === "pp_cashfree_cashfree" || s.provider_id === "cashfree")
   }
 
   if (!cart && loading) return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><Spinner /></div>
@@ -244,16 +260,16 @@ export default function DirectCheckout({
               )}
             </div>
 
-            {/* Payment Button */}
+            {/* Payment Button with Fallback */}
             {getCashfreeSession() ? (
               <CashfreePaymentButton session={{ data: getCashfreeSession()?.data }} cart={cart} />
             ) : (
               <div className="text-center">
                  <Text className="text-red-500 font-medium mb-2">
-                   Payment session not found.
+                   Payment session updated.
                  </Text>
-                 <Button variant="secondary" onClick={handleAddressSubmit} size="small">
-                    Retry Payment Load
+                 <Button variant="secondary" onClick={handleApplyCoupon} size="small" isLoading={couponLoading}>
+                    Reload Payment
                  </Button>
               </div>
             )}
