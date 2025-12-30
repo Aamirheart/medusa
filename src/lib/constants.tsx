@@ -34,6 +34,10 @@ export const paymentInfoMap: Record<
     title: "Manual Payment",
     icon: <CreditCard />,
   },
+  pp_cashfree_cashfree: {
+    title: "Cashfree Payment",
+    icon: <CreditCard />,
+  },
   // Add more payment providers here
 }
 

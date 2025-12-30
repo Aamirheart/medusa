@@ -125,6 +125,7 @@ export default function BookingClient({
           // Pass the selected slot as metadata to the line item
           metadata={{
             appointment_slot: selectedSlot,
+            
             service_id: "13", // from your API payload requirement
             therapist_id: "10"
           }}
