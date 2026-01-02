@@ -209,6 +209,12 @@ export async function setShippingMethod({
 
   return sdk.store.cart
     .addShippingMethod(cartId, { option_id: shippingMethodId }, {}, headers)
+    // --- FIX: Revalidate cache so frontend updates immediately ---
+    .then(async () => {
+      const cartCacheTag = await getCacheTag("carts")
+      revalidateTag(cartCacheTag)
+    })
+    // -------------------------------------------------------------
     .catch(medusaError)
 }
 
@@ -220,6 +226,13 @@ export async function initiatePaymentSession(
 
   return sdk.store.payment
     .initiatePaymentSession(cart, data, {}, headers)
+    // --- FIX: Revalidate cache to ensure session appears ---
+    .then(async (res) => {
+      const cartCacheTag = await getCacheTag("carts")
+      revalidateTag(cartCacheTag)
+      return res
+    })
+    // -------------------------------------------------------
     .catch(medusaError)
 }
 
@@ -292,9 +305,6 @@ export async function setAddresses(currentState: unknown, formData: FormData) {
     redirect(`/${formData.get("shipping_address.country_code")}/checkout?step=delivery`)
 }
 
-/**
- * UPDATED: placeOrder with FIXED Auto-Recovery Logic
- */
 export async function placeOrder(cartId?: string) {
   const id = cartId || (await getCartId())
   if (!id) throw new Error("No existing cart found")
@@ -330,26 +340,21 @@ export async function placeOrder(cartId?: string) {
     if (error.message.includes("Payment sessions are required") || error.message.includes("session")) {
       console.log("⚠️ Session lost. Attempting to restore Cashfree session...")
       
-      // Fetch fresh cart
       const cart = await retrieveCart(id, undefined, true)
       
       if (!cart) throw new Error("Cart not found during recovery")
 
-      // Find the Cashfree session
       const cashfreeSession = 
         cart.payment_collection?.payment_sessions?.find(s => s.provider_id.includes("cashfree")) ||
         cart.payment_sessions?.find(s => s.provider_id.includes("cashfree"))
 
       if (cashfreeSession) {
-        // FIXED: Use initiatePaymentSession to select/refresh the provider
-        // instead of cart.update which doesn't support payment_session_id
         await initiatePaymentSession(cart, { 
             provider_id: cashfreeSession.provider_id 
         })
         
         console.log("✅ Session restored. Retrying completion...")
         
-        // Retry completion
         const retryRes = await sdk.store.cart.complete(id, {}, headers).catch(medusaError)
         
         if (retryRes?.type === "order") {
@@ -361,7 +366,6 @@ export async function placeOrder(cartId?: string) {
       }
     }
 
-    // Rethrow other errors (like "Not Authorized") so frontend retry logic works
     throw error
   }
 }

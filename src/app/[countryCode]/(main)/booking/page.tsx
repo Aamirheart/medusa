@@ -16,17 +16,29 @@ type Props = {
 
 export default async function BookingPage(props: Props) {
   const params = await props.params
+  console.log("--- DEBUG: Booking Page Loaded ---")
+  console.log("Requested Country:", params.countryCode)
+
   const region = await getRegion(params.countryCode)
 
   if (!region) {
+    console.error("ERROR: Region not found for code:", params.countryCode)
     notFound()
   }
+  console.log("Region Found:", region.name)
 
   // 1. Fetch Slots
-  const slotsData = await fetchTherapistSlots()
+  let slotsData = { dates: [], Slots: [] };
+  try {
+    slotsData = await fetchTherapistSlots()
+    console.log("Slots API Response:", JSON.stringify(slotsData, null, 2))
+  } catch (e) {
+    console.error("ERROR: Failed to fetch slots:", e)
+  }
 
-  // 2. Fetch a Product to link the payment to
-  // Adjust 'limit: 1' or add 'handle: "my-service"' to find the specific product
+  // 2. Fetch a Product
+  // We explicitly search for a product that MIGHT have a price.
+  // Ideally, use a handle: listProducts({ countryCode: ..., queryParams: { handle: "consultation" } })
   const { response } = await listProducts({
     countryCode: params.countryCode,
     queryParams: { limit: 1 }, 
@@ -35,8 +47,19 @@ export default async function BookingPage(props: Props) {
   const product = response.products[0]
   
   if (!product || !product.variants?.[0]) {
-    return <div>Configuration Error: No service product found in Medusa.</div>
+    console.error("ERROR: No products found. Check if products have INR prices in Admin.")
+    return (
+      <div className="py-24 text-center">
+        <h1 className="text-2xl font-bold text-red-600">Configuration Error</h1>
+        <p>No products found for {region.name}.</p>
+        <p className="text-sm text-gray-500 mt-2">
+          Tip: Go to Medusa Admin -> Products -> Edit Variant -> Add Price for INR.
+        </p>
+      </div>
+    )
   }
+
+  console.log("Product Found:", product.title)
 
   return (
     <div className="content-container py-12">
