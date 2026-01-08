@@ -10,6 +10,8 @@ import ErrorMessage from "../error-message"
 import { handlePaytm } from "@lib/payment-handlers" 
 // Import your new dedicated Cashfree component
 import { CashfreePaymentButton } from "./cashfree-payment-button" 
+// [NEW] Import the Razorpay component
+import { RazorpayPaymentButton } from "./razorpay-payment-button"
 
 type PaymentButtonProps = {
   cart: HttpTypes.StoreCart
@@ -54,7 +56,18 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
         />
       )
 
-    // --- CASE 2: PAYTM ---
+    // --- CASE 2: RAZORPAY ---
+    // [NEW] Check provider ID matches your backend (usually pp_razorpay_razorpay)
+    case providerId === "pp_razorpay_razorpay":
+      return (
+        <RazorpayPaymentButton 
+          session={paymentSession} 
+          cart={cart}
+          data-testid={dataTestId}
+        />
+      )
+
+    // --- CASE 3: PAYTM ---
     // Matches Medusa v2 generated ID
     case providerId === "pp_paytm_paytm":
       return (
