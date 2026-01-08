@@ -38,9 +38,9 @@ export const paymentInfoMap: Record<
     title: "Cashfree Payment",
     icon: <CreditCard />,
   },
-  pp_razorpay_razorpay: {
-    title: "Razorpay",
-    icon: <CreditCard />, // Or replace with a custom Razorpay icon
+pp_razorpay_razorpay: {
+    title: "Razorpay Secure",
+    icon: <CreditCard />, 
   },
   // Add more payment providers here
 }

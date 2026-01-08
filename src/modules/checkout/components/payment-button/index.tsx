@@ -8,7 +8,6 @@ import { useElements, useStripe } from "@stripe/react-stripe-js"
 import React, { useState } from "react"
 import ErrorMessage from "../error-message"
 import { handlePaytm } from "@lib/payment-handlers" 
-// Import your new dedicated Cashfree component
 import { CashfreePaymentButton } from "./cashfree-payment-button" 
 // [NEW] Import the Razorpay component
 import { RazorpayPaymentButton } from "./razorpay-payment-button"
@@ -46,8 +45,7 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
         <ManualTestPaymentButton notReady={notReady} data-testid={dataTestId} />
       )
 
-    // --- CASE 1: CASHFREE ---
-    // Matches Medusa v2 generated ID
+    // --- CASE: CASHFREE ---
     case providerId === "pp_cashfree_cashfree":
       return (
         <CashfreePaymentButton 
@@ -56,19 +54,17 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
         />
       )
 
-    // --- CASE 2: RAZORPAY ---
-    // [NEW] Check provider ID matches your backend (usually pp_razorpay_razorpay)
+    // --- CASE: RAZORPAY (NEW) ---
+    // Ensure this ID matches what is in your constants.tsx
     case providerId === "pp_razorpay_razorpay":
       return (
         <RazorpayPaymentButton 
-          session={paymentSession} 
+          session={paymentSession!} // Use ! to assert it exists since providerId check passed
           cart={cart}
-          data-testid={dataTestId}
         />
       )
 
-    // --- CASE 3: PAYTM ---
-    // Matches Medusa v2 generated ID
+    // --- CASE: PAYTM ---
     case providerId === "pp_paytm_paytm":
       return (
         <GeneralPaymentButton
@@ -105,7 +101,6 @@ const GeneralPaymentButton = ({
     setErrorMessage(null)
 
     try {
-      // Check for Paytm ID (flexible check)
       if (paymentSession.provider_id.includes("paytm")) {
         await handlePaytm(paymentSession.data)
       } else {
