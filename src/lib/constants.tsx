@@ -38,11 +38,16 @@ export const paymentInfoMap: Record<
     title: "Cashfree Payment",
     icon: <CreditCard />,
   },
-pp_razorpay_razorpay: {
+  // FIXED: Changed from pp_razorpay_razorpay to match backend
+  "razorpay-payment": {
     title: "Razorpay Secure",
     icon: <CreditCard />, 
   },
-  // Add more payment providers here
+  // Keep old one as fallback
+  pp_razorpay_razorpay: {
+    title: "Razorpay Secure",
+    icon: <CreditCard />, 
+  },
 }
 
 // This only checks if it is native stripe or medusa payments for card payments, it ignores the other stripe-based providers
@@ -55,8 +60,19 @@ export const isStripeLike = (providerId?: string) => {
 export const isPaypal = (providerId?: string) => {
   return providerId?.startsWith("pp_paypal")
 }
+
 export const isManual = (providerId?: string) => {
   return providerId?.startsWith("pp_system_default")
+}
+
+// Helper to check if provider is Cashfree
+export const isCashfree = (providerId?: string) => {
+  return providerId?.includes("cashfree")
+}
+
+// Helper to check if provider is Razorpay
+export const isRazorpay = (providerId?: string) => {
+  return providerId === "razorpay-payment" || providerId?.includes("razorpay")
 }
 
 // Add currencies that don't need to be divided by 100

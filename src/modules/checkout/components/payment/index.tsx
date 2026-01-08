@@ -29,7 +29,17 @@ const Payment = ({
   const [cardBrand, setCardBrand] = useState<string | null>(null)
   const [cardComplete, setCardComplete] = useState(false)
   
-  // FIX 1: Default to first available method if session is lost
+  // CRITICAL FIX: Only show payment methods that are actually available from backend
+  // Filter out any providers that aren't in the availablePaymentMethods array
+  const enabledProviderIds = availablePaymentMethods?.map(pm => pm.id) || []
+  
+  console.log("🔍 Payment Debug:", {
+    availableFromBackend: enabledProviderIds,
+    activeSessionProvider: activeSession?.provider_id,
+    allSessions: cart.payment_collection?.payment_sessions?.map((s: any) => s.provider_id)
+  })
+
+  // Default to first available method if session is lost
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(
     activeSession?.provider_id ?? availablePaymentMethods?.[0]?.id ?? ""
   )
@@ -65,11 +75,9 @@ const Payment = ({
     [searchParams]
   )
 
-  // FIX 2: AUTO-RECOVERY LOGIC
-  // This detects when the session is lost (due to coupon) and restores it automatically.
+  // AUTO-RECOVERY LOGIC
   useEffect(() => {
     const handleSessionRecovery = async () => {
-      // If we are on the payment step, have methods, but NO active session...
       if (isOpen && !paidByGiftcard && !activeSession && availablePaymentMethods?.length) {
         
         const methodToUse = selectedPaymentMethod || availablePaymentMethods[0].id
@@ -79,12 +87,10 @@ const Payment = ({
         setError(null)
         
         try {
-          // Re-initiate the session
           await initiatePaymentSession(cart, {
             provider_id: methodToUse,
           })
           
-          // Refresh page data so the UI sees the new session immediately
           router.refresh()
           
         } catch (err) {
@@ -169,8 +175,16 @@ const Payment = ({
       </div>
       <div>
         <div className={isOpen ? "block" : "hidden"}>
-          {!paidByGiftcard && availablePaymentMethods?.length && (
+          {!paidByGiftcard && availablePaymentMethods?.length ? (
             <>
+              {/* DEBUG INFO - Remove in production */}
+              <div className="mb-4 p-2 bg-blue-50 rounded text-xs">
+                <strong>Debug:</strong> Showing {availablePaymentMethods.length} payment methods enabled in backend:
+                {availablePaymentMethods.map(pm => (
+                  <div key={pm.id}>• {pm.id}</div>
+                ))}
+              </div>
+
               <RadioGroup
                 value={selectedPaymentMethod}
                 onChange={(value: string) => setPaymentMethod(value)}
@@ -197,7 +211,13 @@ const Payment = ({
                 ))}
               </RadioGroup>
             </>
-          )}
+          ) : !paidByGiftcard ? (
+            <div className="p-4 bg-red-50 rounded">
+              <Text className="text-red-600">
+                No payment methods available. Please enable a payment provider in your Medusa backend settings.
+              </Text>
+            </div>
+          ) : null}
 
           {paidByGiftcard && (
             <div className="flex flex-col w-1/3">
