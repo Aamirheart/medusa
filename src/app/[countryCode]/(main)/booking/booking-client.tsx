@@ -3,8 +3,8 @@
 import { useState, useMemo } from "react"
 import { Button, Heading, Text, clx } from "@medusajs/ui"
 import { HttpTypes } from "@medusajs/types"
-import DirectCheckout from "@modules/products/components/direct-checkout"
-import { format } from "date-fns" // Assuming date-fns is available or use native Date
+// --- CHANGE HERE: Import the new component ---
+import BookingCheckout from "./booking-checkout" 
 
 type BookingClientProps = {
   slotsData: {
@@ -29,7 +29,6 @@ export default function BookingClient({
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
 
   // Filter slots for the selected date
-  // Slot format: "2025-12-29 13:00:00"
   const availableTimeSlots = useMemo(() => {
     return slotsData.Slots.filter(slot => slot.startsWith(selectedDate))
       .map(slot => {
@@ -59,7 +58,7 @@ export default function BookingClient({
               key={date}
               onClick={() => {
                 setSelectedDate(date)
-                setSelectedSlot(null) // Reset slot when date changes
+                setSelectedSlot(null)
               }}
               className={clx(
                 "px-4 py-3 rounded-md border min-w-[100px] transition-all text-sm font-medium whitespace-nowrap",
@@ -68,7 +67,6 @@ export default function BookingClient({
                   : "border-gray-200 hover:border-gray-400 text-gray-700 bg-gray-50"
               )}
             >
-              {/* Simple Date Formatting */}
               {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
             </button>
           ))}
@@ -114,21 +112,15 @@ export default function BookingClient({
         </Button>
       </div>
 
-      {/* 4. Direct Checkout Modal */}
+      {/* 4. Use the new BookingCheckout Component */}
       {isCheckoutOpen && selectedSlot && (
-        <DirectCheckout 
+        <BookingCheckout 
           product={product}
           variant={variant}
           countryCode={countryCode}
           region={region}
+          slot={selectedSlot}
           close={() => setIsCheckoutOpen(false)}
-          // Pass the selected slot as metadata to the line item
-          metadata={{
-            appointment_slot: selectedSlot,
-            
-            service_id: "13", // from your API payload requirement
-            therapist_id: "10"
-          }}
         />
       )}
     </div>

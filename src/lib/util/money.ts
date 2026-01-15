@@ -44,12 +44,20 @@ export const formatAmount = ({
 
   // Medusa amounts are usually in the smallest unit (e.g., cents).
   // We divide by 100 to get the main currency unit. 
-  // (Note: For currencies like JPY that don't use cents, you might need conditional logic here)
   const val = amount / 100
 
   return convertToLocale({
     amount: val,
     currency_code: region.currency_code,
+    locale,
+  })
+}
+
+// --- NEW FUNCTION ADDED HERE ---
+export const formatCurrency = (amount: number, currency_code: string, locale = "en-US") => {
+  return convertToLocale({
+    amount: amount / 100, // Converts cents to dollars/rupees
+    currency_code,
     locale,
   })
 }

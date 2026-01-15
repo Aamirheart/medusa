@@ -9,7 +9,6 @@ import React, { useState } from "react"
 import ErrorMessage from "../error-message"
 import { handlePaytm } from "@lib/payment-handlers" 
 import { CashfreePaymentButton } from "./cashfree-payment-button" 
-// [NEW] Import the Razorpay component
 import { RazorpayPaymentButton } from "./razorpay-payment-button"
 
 type PaymentButtonProps = {
@@ -28,8 +27,18 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
     !cart.email ||
     (cart.shipping_methods?.length ?? 0) < 1
 
-  const paymentSession = cart.payment_collection?.payment_sessions?.[0]
+  // 1. FIX: Find the session that is actually PENDING.
+  // If we just take [0], we might get an old abandoned session.
+  const activeSession = cart.payment_collection?.payment_sessions?.find(
+    (s) => s.status === "pending"
+  )
+
+  // Fallback: If no pending session is marked (rare), take the first one, or undefined
+  const paymentSession = activeSession || cart.payment_collection?.payment_sessions?.[0]
   const providerId = paymentSession?.provider_id
+
+  // Debugging: This will show you exactly what ID is being selected in your browser console
+  console.log("PaymentButton: Selected Provider ID:", providerId)
 
   switch (true) {
     case isStripeLike(providerId):
@@ -46,7 +55,8 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
       )
 
     // --- CASE: CASHFREE ---
-    case providerId === "pp_cashfree_cashfree":
+    // Checks for both standard ID and Medusa's "pp_" prefix format
+    case providerId === "cashfree" || providerId === "pp_cashfree_cashfree":
       return (
         <CashfreePaymentButton 
           session={paymentSession} 
@@ -54,18 +64,18 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
         />
       )
 
-    // --- CASE: RAZORPAY (NEW) ---
-    // Ensure this ID matches what is in your constants.tsx
-    case providerId === "pp_razorpay_razorpay":
+    // --- CASE: RAZORPAY ---
+    // Checks for both standard ID and Medusa's "pp_" prefix format
+    case providerId === "razorpay" || providerId === "pp_razorpay_razorpay":
       return (
         <RazorpayPaymentButton 
-          session={paymentSession!} // Use ! to assert it exists since providerId check passed
+          session={paymentSession!} 
           cart={cart}
         />
       )
 
     // --- CASE: PAYTM ---
-    case providerId === "pp_paytm_paytm":
+    case providerId === "paytm" || providerId === "pp_paytm_paytm":
       return (
         <GeneralPaymentButton
           cart={cart}
@@ -92,7 +102,9 @@ const GeneralPaymentButton = ({
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const paymentSession = cart.payment_collection?.payment_sessions?.[0]
+  const paymentSession = cart.payment_collection?.payment_sessions?.find(
+     (s) => s.status === "pending"
+  )
 
   const handlePayment = async () => {
     if (!paymentSession) return
@@ -130,8 +142,6 @@ const GeneralPaymentButton = ({
     </>
   )
 }
-
-// ... (StripePaymentButton and ManualTestPaymentButton below remain unchanged) ...
 
 const StripePaymentButton = ({
   cart,

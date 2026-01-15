@@ -1,11 +1,13 @@
+// src/modules/checkout/components/payment-button/razorpay-payment-button.tsx
+
 "use client"
 
 import { Button, Text } from "@medusajs/ui"
 import { useState } from "react"
 import { HttpTypes } from "@medusajs/types"
 import { placeOrder } from "@lib/data/cart"
-// 1. Import correct type (RazorpayOrderOptions)
-import useRazorpay, { RazorpayOrderOptions } from "react-razorpay"
+// 1. FIXED: Use named import for useRazorpay
+import { useRazorpay, RazorpayOrderOptions } from "react-razorpay" 
 
 type RazorpayButtonProps = {
   session: HttpTypes.StorePaymentSession
@@ -16,7 +18,6 @@ export const RazorpayPaymentButton = ({ session, cart }: RazorpayButtonProps) =>
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  // 2. CORRECT HOOK USAGE: Destructure object, not array
   const { error, isLoading, Razorpay } = useRazorpay()
 
   const handlePayment = async () => {
@@ -24,7 +25,6 @@ export const RazorpayPaymentButton = ({ session, cart }: RazorpayButtonProps) =>
     setErrorMessage(null)
 
     try {
-      // 3. Check if SDK is loaded
       if (isLoading || !Razorpay) {
         throw new Error("Razorpay SDK is still loading. Please try again.")
       }
@@ -35,19 +35,15 @@ export const RazorpayPaymentButton = ({ session, cart }: RazorpayButtonProps) =>
         throw new Error("Razorpay Order ID missing from session data.")
       }
 
-      // 4. Correct Options Type
       const options: RazorpayOrderOptions = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY || "", 
-        amount: session.amount, // Medusa amounts are integers (smallest unit)
+        amount: session.amount, 
         currency: cart.currency_code.toUpperCase(),
         name: "My Medusa Store",
         description: `Order #${cart.display_id}`,
         order_id: razorpayOrderId,
         
-        // 5. Success Handler
         handler: async (response) => {
-          // You can log response.razorpay_payment_id if needed
-          
           await placeOrder()
             .catch((err) => {
               setErrorMessage(err.message)
