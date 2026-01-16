@@ -119,23 +119,26 @@ export default function BookingCheckout({
   }
 
   // 3. Handle Coupon Application
-  const handleApplyCoupon = async () => {
-    if (!cart || !formData.promo_code) return
-    setApplyingPromo(true)
-    setPromoError(null)
+// src/app/[countryCode]/(main)/booking/booking-checkout.tsx
 
-    try {
-      await applyPromotions([formData.promo_code], cart.id)
-      // Refresh cart to see discount
-      const refreshedCart = await retrieveCart(cart.id, undefined, true)
-      setCart(refreshedCart)
-    } catch (err: any) {
-      setPromoError(err.message || "Invalid coupon")
-    } finally {
-      setApplyingPromo(false)
-    }
+const handleApplyCoupon = async () => {
+  if (!cart || !formData.promo_code) return
+  setApplyingPromo(true)
+  setPromoError(null)
+
+  try {
+    // ALWAYS send an array with just the ONE new code.
+    // This automatically wipes out any previous codes in the backend.
+    await applyPromotions([formData.promo_code], cart.id)
+
+    const refreshedCart = await retrieveCart(cart.id, undefined, true)
+    setCart(refreshedCart)
+  } catch (err: any) {
+    setPromoError(err.message || "Invalid coupon")
+  } finally {
+    setApplyingPromo(false)
   }
-
+}
   // 4. Handle Payment Method Selection
   const handlePaymentSelect = async (providerId: string) => {
     if (!cart) return

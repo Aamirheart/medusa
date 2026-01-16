@@ -31,29 +31,38 @@ const DiscountCode: React.FC<DiscountCodeProps> = ({ cart }) => {
     )
   }
 
-  const addPromotionCode = async (formData: FormData) => {
-    setErrorMessage("")
+  // src/modules/checkout/components/discount-code/index.tsx
 
-    const code = formData.get("code")
-    if (!code) {
-      return
-    }
-    const input = document.getElementById("promotion-input") as HTMLInputElement
-    const codes = promotions
-      .filter((p) => p.code !== undefined)
-      .map((p) => p.code!)
-    codes.push(code.toString())
+const addPromotionCode = async (formData: FormData) => {
+  setErrorMessage("")
 
-    try {
-      await applyPromotions(codes)
-    } catch (e: any) {
-      setErrorMessage(e.message)
-    }
-
-    if (input) {
-      input.value = ""
-    }
+  const code = formData.get("code")
+  if (!code) {
+    return
   }
+  const input = document.getElementById("promotion-input") as HTMLInputElement
+
+  // --- DELETE OR COMMENT OUT THESE LINES (This was the stacking logic) ---
+  // const codes = promotions
+  //   .filter((p) => p.code !== undefined)
+  //   .map((p) => p.code!)
+  // codes.push(code.toString())
+  // ---------------------------------------------------------------------
+
+  // --- ADD THIS LINE (This enforces "One Code Only") ---
+  const codes = [code.toString()] 
+  // ----------------------------------------------------
+
+  try {
+    await applyPromotions(codes)
+  } catch (e: any) {
+    setErrorMessage(e.message)
+  }
+
+  if (input) {
+    input.value = ""
+  }
+}
 
   return (
     <div className="w-full bg-white flex flex-col">

@@ -32,8 +32,23 @@ const CountrySelect = ({ toggleState, regions }: CountrySelectProps) => {
     | undefined
   >(undefined)
 
-  const { countryCode } = useParams()
-  const currentPath = usePathname().split(`/${countryCode}`)[1]
+  // 1. Cast params to ensure we treat countryCode as a string
+  const { countryCode } = useParams() as { countryCode: string }
+  const pathname = usePathname()
+
+  // 2. Robustly calculate the current path without the country code
+  let currentPath = pathname
+  if (countryCode) {
+    // Case A: We are at the root of the country path (e.g., "/us" -> "/")
+    if (currentPath === `/${countryCode}`) {
+      currentPath = "/"
+    }
+    // Case B: We are deep in a country path (e.g., "/us/cart" -> "/cart")
+    // We check for the trailing slash to avoid matching partial words (e.g., "/users" with "us")
+    else if (currentPath.startsWith(`/${countryCode}/`)) {
+      currentPath = currentPath.replace(`/${countryCode}`, "")
+    }
+  }
 
   const { state, close } = toggleState
 
