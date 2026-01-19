@@ -119,6 +119,56 @@ export async function createInstantCart({
     throw new Error(error.message || "Failed to create instant cart")
   }
 }
+// src/lib/data/cart.ts
+
+// ... existing imports
+
+export async function createCustomTherapistCart({
+  variantId,
+  quantity,
+  countryCode,
+  therapistId,
+  slot
+}: {
+  variantId: string
+  quantity: number
+  countryCode: string
+  therapistId: string
+  slot: string
+}) {
+  // 1. We call the custom API route you created in the backend
+  // Note: We use the absolute URL or relative if on same domain
+  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/store/custom/add-booking`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      variant_id: variantId,
+      quantity,
+      country_code: countryCode,
+      therapist_id: therapistId, // This triggers the dynamic price logic in backend
+      metadata: {
+        appointment_slot: slot
+      }
+    }),
+    cache: "no-store",
+  })
+
+  if (!res.ok) {
+    throw new Error("Failed to create custom booking cart")
+  }
+
+  const data = await res.json()
+  
+  // 2. The API should return the cart ID. We set it in the cookie so the user "owns" this cart.
+  if (data.cart_id) {
+    await setCartId(data.cart_id)
+    return await retrieveCart(data.cart_id, undefined, true)
+  }
+  
+  return null
+}
 
 export async function updateCart(data: HttpTypes.StoreUpdateCart, customCartId?: string) {
   const cartId = customCartId || (await getCartId())

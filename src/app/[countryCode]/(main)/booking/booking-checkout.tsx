@@ -5,7 +5,7 @@ import { HttpTypes } from "@medusajs/types"
 import { Button, Heading, Text, Input, Label, clx } from "@medusajs/ui"
 import { formatCurrency } from "@lib/util/money"
 import { 
-  createInstantCart, 
+  createCustomTherapistCart, // <--- CHANGED: Import your new custom function
   updateCart, 
   applyPromotions, 
   initiatePaymentSession, 
@@ -21,6 +21,7 @@ type BookingCheckoutProps = {
   region: HttpTypes.StoreRegion
   countryCode: string
   slot: string
+  therapistId: string // <--- CHANGED: Added prop
   close: () => void
 }
 
@@ -30,6 +31,7 @@ export default function BookingCheckout({
   region, 
   countryCode, 
   slot,
+  therapistId, // <--- CHANGED: Receive prop
   close 
 }: BookingCheckoutProps) {
   const [cart, setCart] = useState<HttpTypes.StoreCart | null>(null)
@@ -50,7 +52,7 @@ export default function BookingCheckout({
   const [initializingPayment, setInitializingPayment] = useState(false)
   const [promoError, setPromoError] = useState<string | null>(null)
 
-  // 1. Initialize Cart with the Slot Item
+  // 1. Initialize Cart with Custom Pricing Logic
   useEffect(() => {
     const initBooking = async () => {
       try {
@@ -60,16 +62,16 @@ export default function BookingCheckout({
         const providers = await listCartPaymentMethods(region.id)
         setPaymentProviders(providers || [])
 
-        // Create a dedicated cart for this booking
-        const newCart = await createInstantCart({
+        // --- CHANGED: Use custom function to hit backend API ---
+        const newCart = await createCustomTherapistCart({
           variantId: variant.id,
           quantity: 1,
           countryCode,
-          metadata: {
-            appointment_slot: slot,
-            product_name: product.title
-          }
+          therapistId: therapistId, // Backend uses this to set dynamic price
+          slot: slot
         })
+        // ------------------------------------------------------
+
         setCart(newCart)
       } catch (err) {
         console.error("Failed to init booking cart", err)
@@ -78,7 +80,7 @@ export default function BookingCheckout({
       }
     }
     initBooking()
-  }, [variant.id, countryCode, region.id, slot, product.title])
+  }, [variant.id, countryCode, region.id, slot, therapistId]) // <--- CHANGED: Added therapistId dep
 
   // 2. Handle Customer Details Submit
   const handleDetailsSubmit = async () => {
@@ -86,7 +88,7 @@ export default function BookingCheckout({
     setLoading(true)
     
     try {
-      // Update Cart with Email & Address (Address is often required for payment providers)
+      // Update Cart with Email & Address
       const updatedCart = await updateCart({
         email: formData.email,
         shipping_address: {
@@ -119,26 +121,22 @@ export default function BookingCheckout({
   }
 
   // 3. Handle Coupon Application
-// src/app/[countryCode]/(main)/booking/booking-checkout.tsx
+  const handleApplyCoupon = async () => {
+    if (!cart || !formData.promo_code) return
+    setApplyingPromo(true)
+    setPromoError(null)
 
-const handleApplyCoupon = async () => {
-  if (!cart || !formData.promo_code) return
-  setApplyingPromo(true)
-  setPromoError(null)
-
-  try {
-    // ALWAYS send an array with just the ONE new code.
-    // This automatically wipes out any previous codes in the backend.
-    await applyPromotions([formData.promo_code], cart.id)
-
-    const refreshedCart = await retrieveCart(cart.id, undefined, true)
-    setCart(refreshedCart)
-  } catch (err: any) {
-    setPromoError(err.message || "Invalid coupon")
-  } finally {
-    setApplyingPromo(false)
+    try {
+      await applyPromotions([formData.promo_code], cart.id)
+      const refreshedCart = await retrieveCart(cart.id, undefined, true)
+      setCart(refreshedCart)
+    } catch (err: any) {
+      setPromoError(err.message || "Invalid coupon")
+    } finally {
+      setApplyingPromo(false)
+    }
   }
-}
+
   // 4. Handle Payment Method Selection
   const handlePaymentSelect = async (providerId: string) => {
     if (!cart) return
@@ -147,7 +145,6 @@ const handleApplyCoupon = async () => {
         await initiatePaymentSession(cart, {
             provider_id: providerId
         })
-        // Refresh cart to get the active session
         const refreshedCart = await retrieveCart(cart.id, undefined, true)
         setCart(refreshedCart)
     } catch (err) {
@@ -249,6 +246,7 @@ const handleApplyCoupon = async () => {
                 <div className="bg-gray-50 p-4 rounded-lg space-y-2 border">
                     <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Consultation Fee</span>
+                        {/* Ensure subtotal handles potential nulls safely */}
                         <span>{formatCurrency(cart.subtotal ?? 0, cart.currency_code)}</span>
                     </div>
                     {cart.discount_total > 0 && (

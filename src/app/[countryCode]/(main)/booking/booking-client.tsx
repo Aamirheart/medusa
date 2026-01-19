@@ -22,8 +22,11 @@ export default function BookingClient({
   product, 
   variant, 
   countryCode, 
-  region 
-}: BookingClientProps) {
+  region ,
+  therapistId = "10",
+}
+:
+ BookingClientProps& { therapistId?: string }) {
   const [selectedDate, setSelectedDate] = useState<string>(slotsData.dates[0])
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
@@ -113,13 +116,14 @@ export default function BookingClient({
       </div>
 
       {/* 4. Use the new BookingCheckout Component */}
-      {isCheckoutOpen && selectedSlot && (
+     {isCheckoutOpen && selectedSlot && (
         <BookingCheckout 
           product={product}
           variant={variant}
           countryCode={countryCode}
           region={region}
           slot={selectedSlot}
+          therapistId={therapistId} // <--- PASS IT HERE
           close={() => setIsCheckoutOpen(false)}
         />
       )}

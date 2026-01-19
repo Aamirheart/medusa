@@ -24,8 +24,9 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
     !cart ||
     !cart.shipping_address ||
     !cart.billing_address ||
-    !cart.email ||
-    (cart.shipping_methods?.length ?? 0) < 1
+    !cart.email
+    //  ||
+    // (cart.shipping_methods?.length ?? 0) < 1
 
   // 1. FIX: Find the session that is actually PENDING.
   // If we just take [0], we might get an old abandoned session.
@@ -51,7 +52,7 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
       )
     case isManual(providerId):
       return (
-        <ManualTestPaymentButton notReady={notReady} data-testid={dataTestId} />
+        <ManualTestPaymentButton notReady={notReady} data-testid={dataTestId} cart={cart}/>
       )
 
     // --- CASE: CASHFREE ---
@@ -250,12 +251,27 @@ const StripePaymentButton = ({
   )
 }
 
-const ManualTestPaymentButton = ({ notReady }: { notReady: boolean }) => {
+// src/modules/checkout/components/payment-button/index.tsx
+
+// ... existing imports ...
+
+// REPLACE THE COMPONENT AT THE BOTTOM WITH THIS:
+// src/modules/checkout/components/payment-button/index.tsx
+
+const ManualTestPaymentButton = ({ 
+  notReady,
+  cart 
+}: { 
+  notReady: boolean
+  cart: HttpTypes.StoreCart 
+}) => {
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const onPaymentCompleted = async () => {
-    await placeOrder()
+    // FIX: Pass cart.id explicitly. 
+    // This tells the server exactly which cart to complete, ignoring missing cookies.
+    await placeOrder(cart.id) 
       .catch((err) => {
         setErrorMessage(err.message)
       })
@@ -264,9 +280,33 @@ const ManualTestPaymentButton = ({ notReady }: { notReady: boolean }) => {
       })
   }
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     setSubmitting(true)
-    onPaymentCompleted()
+    setErrorMessage(null)
+
+    try {
+      // 1. Find the Manual/System session
+      const manualSession = cart.payment_collection?.payment_sessions?.find(
+        (s) => s.provider_id === "manual" || s.provider_id.includes("system")
+      ) || cart.payment_sessions?.find(
+        (s) => s.provider_id === "manual" || s.provider_id.includes("system")
+      )
+
+      if (manualSession) {
+        // 2. Activate the session to fix "Payment sessions are required"
+        const { initiatePaymentSession } = await import("@lib/data/cart")
+        
+        await initiatePaymentSession(cart, {
+          provider_id: manualSession.provider_id
+        })
+      }
+
+      // 3. Place order (now with explicit ID)
+      await onPaymentCompleted()
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to process manual payment")
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -287,5 +327,4 @@ const ManualTestPaymentButton = ({ notReady }: { notReady: boolean }) => {
     </>
   )
 }
-
 export default PaymentButton

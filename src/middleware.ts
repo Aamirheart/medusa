@@ -103,59 +103,65 @@ async function getCountryCode(
 /**
  * Middleware to handle region selection and onboarding status.
  */
+// src/middleware.ts
+
+// ... (keep imports and helper functions like getRegionMap and getCountryCode exactly as they are) ...
+
+/**
+ * Middleware to handle region selection and onboarding status.
+ */
 export async function middleware(request: NextRequest) {
-  let redirectUrl = request.nextUrl.href
+  const searchParams = request.nextUrl.searchParams
+  const pathname = request.nextUrl.pathname
 
-  let response = NextResponse.redirect(redirectUrl, 307)
-
+  // Retrieve or create a cache ID
   let cacheIdCookie = request.cookies.get("_medusa_cache_id")
-
   let cacheId = cacheIdCookie?.value || crypto.randomUUID()
 
   const regionMap = await getRegionMap(cacheId)
-
   const countryCode = regionMap && (await getCountryCode(request, regionMap))
 
   const urlHasCountryCode =
-    countryCode && request.nextUrl.pathname.split("/")[1].includes(countryCode)
+    countryCode && pathname.split("/")[1].includes(countryCode)
 
-  // if one of the country codes is in the url and the cache id is set, return next
-  if (urlHasCountryCode && cacheIdCookie) {
+  // Check if the URL is a static asset or API route (already handled by config matcher, but good safety)
+  if (pathname.includes(".") || pathname.startsWith("/api")) {
     return NextResponse.next()
   }
 
-  // if one of the country codes is in the url and the cache id is not set, set the cache id and redirect
-  if (urlHasCountryCode && !cacheIdCookie) {
-    response.cookies.set("_medusa_cache_id", cacheId, {
-      maxAge: 60 * 60 * 24,
-    })
-
+  // 1. If the URL already has the country code (e.g. user manually typed /us/booking), let it pass.
+  if (urlHasCountryCode) {
+    const response = NextResponse.next()
+    if (!cacheIdCookie) {
+      response.cookies.set("_medusa_cache_id", cacheId, { maxAge: 60 * 60 * 24 })
+    }
     return response
   }
 
-  // check if the url is a static asset
-  if (request.nextUrl.pathname.includes(".")) {
-    return NextResponse.next()
+  // 2. If NO country code in URL, REWRITE to the correct region path.
+  // This keeps the browser URL as "/booking" but renders "/in/booking".
+  if (countryCode) {
+    const rewritePath = pathname === "/" ? "" : pathname
+    const queryString = request.nextUrl.search ? request.nextUrl.search : ""
+    
+    // Construct the internal URL: /<countryCode>/<path>
+    const rewriteUrl = new URL(`/${countryCode}${rewritePath}${queryString}`, request.url)
+    
+    const response = NextResponse.rewrite(rewriteUrl)
+    
+    // Ensure the cache cookie is set on the rewritten response
+    if (!cacheIdCookie) {
+      response.cookies.set("_medusa_cache_id", cacheId, { maxAge: 60 * 60 * 24 })
+    }
+    
+    return response
   }
 
-  const redirectPath =
-    request.nextUrl.pathname === "/" ? "" : request.nextUrl.pathname
-
-  const queryString = request.nextUrl.search ? request.nextUrl.search : ""
-
-  // If no country code is set, we redirect to the relevant region.
-  if (!urlHasCountryCode && countryCode) {
-    redirectUrl = `${request.nextUrl.origin}/${countryCode}${redirectPath}${queryString}`
-    response = NextResponse.redirect(`${redirectUrl}`, 307)
-  } else if (!urlHasCountryCode && !countryCode) {
-    // Handle case where no valid country code exists (empty regions)
-    return new NextResponse(
-      "No valid regions configured. Please set up regions with countries in your Medusa Admin.",
-      { status: 500 }
-    )
-  }
-
-  return response
+  // 3. Fallback if configuration is completely missing
+  return new NextResponse(
+    "No valid regions configured. Please set up regions with countries in your Medusa Admin.",
+    { status: 500 }
+  )
 }
 
 export const config = {
@@ -163,3 +169,4 @@ export const config = {
     "/((?!api|_next/static|_next/image|favicon.ico|images|assets|png|svg|jpg|jpeg|gif|webp).*)",
   ],
 }
+
