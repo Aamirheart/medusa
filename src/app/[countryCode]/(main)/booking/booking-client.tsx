@@ -1,10 +1,10 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { Button, Heading, Text, clx } from "@medusajs/ui"
+import { Button, Heading, Text, clx, Container } from "@medusajs/ui"
 import { HttpTypes } from "@medusajs/types"
-// --- CHANGE HERE: Import the new component ---
 import BookingCheckout from "./booking-checkout" 
+import { User } from "@medusajs/icons" // Import an icon for visual flair
 
 type BookingClientProps = {
   slotsData: {
@@ -17,16 +17,33 @@ type BookingClientProps = {
   region: HttpTypes.StoreRegion
 }
 
+// 1. Define Available Therapists (Matching your backend logic)
+const THERAPISTS = [
+  { 
+    id: "10", 
+    name: "Dr. Standard", 
+    specialty: "General Therapy", 
+    price: 1000 
+  },
+  { 
+    id: "11", 
+    name: "Dr. Specialist", 
+    specialty: "Advanced Care", 
+    price: 2000 // Backend logic: if id === "11", price is 2000
+  }
+]
+
 export default function BookingClient({ 
   slotsData, 
   product, 
   variant, 
   countryCode, 
-  region ,
-  therapistId = "10",
-}
-:
- BookingClientProps& { therapistId?: string }) {
+  region,
+}: BookingClientProps) {
+  
+  // 2. Add State for Selected Therapist (Default to first one)
+  const [selectedTherapistId, setSelectedTherapistId] = useState<string>(THERAPISTS[0].id)
+  
   const [selectedDate, setSelectedDate] = useState<string>(slotsData.dates[0])
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
@@ -35,10 +52,10 @@ export default function BookingClient({
   const availableTimeSlots = useMemo(() => {
     return slotsData.Slots.filter(slot => slot.startsWith(selectedDate))
       .map(slot => {
-        const timePart = slot.split(" ")[1] // "13:00:00"
+        const timePart = slot.split(" ")[1] 
         return {
           full: slot,
-          display: timePart.slice(0, 5) // "13:00"
+          display: timePart.slice(0, 5) 
         }
       })
   }, [selectedDate, slotsData.Slots])
@@ -49,12 +66,49 @@ export default function BookingClient({
     }
   }
 
+  // Helper to get current therapist details
+  const currentTherapist = THERAPISTS.find(t => t.id === selectedTherapistId)
+
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
       
-      {/* 1. Date Selector */}
+      {/* --- NEW SECTION: Therapist Selection --- */}
       <div className="mb-8">
-        <Heading level="h2" className="text-lg mb-4">1. Select Date</Heading>
+        <Heading level="h2" className="text-lg mb-4">1. Choose your Therapist</Heading>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {THERAPISTS.map((therapist) => (
+            <div 
+              key={therapist.id}
+              onClick={() => setSelectedTherapistId(therapist.id)}
+              className={clx(
+                "cursor-pointer p-4 rounded-lg border transition-all flex items-start gap-4",
+                selectedTherapistId === therapist.id
+                  ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600"
+                  : "border-gray-200 hover:border-gray-300 bg-white"
+              )}
+            >
+              <div className={clx(
+                "p-2 rounded-full",
+                selectedTherapistId === therapist.id ? "bg-blue-200 text-blue-700" : "bg-gray-100 text-gray-500"
+              )}>
+                <User />
+              </div>
+              <div>
+                <Text className="font-bold text-base">{therapist.name}</Text>
+                <Text className="text-sm text-gray-500">{therapist.specialty}</Text>
+                <Text className="text-sm font-medium mt-1">
+                  {therapist.price} {region.currency_code.toUpperCase()}
+                </Text>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* ---------------------------------------- */}
+
+      {/* 2. Date Selector (Updated heading number) */}
+      <div className="mb-8">
+        <Heading level="h2" className="text-lg mb-4">2. Select Date</Heading>
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
           {slotsData.dates.map((date) => (
             <button
@@ -76,9 +130,9 @@ export default function BookingClient({
         </div>
       </div>
 
-      {/* 2. Time Slot Grid */}
+      {/* 3. Time Slot Grid (Updated heading number) */}
       <div className="mb-8">
-        <Heading level="h2" className="text-lg mb-4">2. Select Time</Heading>
+        <Heading level="h2" className="text-lg mb-4">3. Select Time</Heading>
         
         {availableTimeSlots.length === 0 ? (
           <Text className="text-gray-500 italic">No slots available for this date.</Text>
@@ -102,8 +156,12 @@ export default function BookingClient({
         )}
       </div>
 
-      {/* 3. Action Button */}
-      <div className="border-t pt-6 flex justify-end">
+      {/* 4. Action Button */}
+      <div className="border-t pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+         <div className="text-sm text-gray-600">
+            Summary: <span className="font-bold text-black">{currentTherapist?.name}</span> @ {selectedSlot ? selectedSlot : "..."}
+         </div>
+
         <Button 
           variant="primary" 
           size="large" 
@@ -111,11 +169,11 @@ export default function BookingClient({
           onClick={handleBookClick}
           className="w-full sm:w-auto"
         >
-          Book Selected Slot
+          Book for {currentTherapist?.price} {region.currency_code.toUpperCase()}
         </Button>
       </div>
 
-      {/* 4. Use the new BookingCheckout Component */}
+      {/* 5. Pass selectedTherapistId to Checkout */}
      {isCheckoutOpen && selectedSlot && (
         <BookingCheckout 
           product={product}
@@ -123,7 +181,7 @@ export default function BookingClient({
           countryCode={countryCode}
           region={region}
           slot={selectedSlot}
-          therapistId={therapistId} // <--- PASS IT HERE
+          therapistId={selectedTherapistId} // <--- UPDATED: Passing dynamic ID
           close={() => setIsCheckoutOpen(false)}
         />
       )}

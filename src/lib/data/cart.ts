@@ -119,10 +119,6 @@ export async function createInstantCart({
     throw new Error(error.message || "Failed to create instant cart")
   }
 }
-// src/lib/data/cart.ts
-
-// ... existing imports
-
 export async function createCustomTherapistCart({
   variantId,
   quantity,
@@ -136,18 +132,23 @@ export async function createCustomTherapistCart({
   therapistId: string
   slot: string
 }) {
-  // 1. We call the custom API route you created in the backend
-  // Note: We use the absolute URL or relative if on same domain
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/store/custom/add-booking`, {
+  // 1. Define the Backend URL correctly
+  // Use the environment variable if available, otherwise default to standard Medusa port 9000
+  const backendUrl = process.env.MEDUSA_BACKEND_URL || "http://localhost:9000"
+
+  // 2. Update the fetch call to use backendUrl instead of NEXT_PUBLIC_BASE_URL
+  const res = await fetch(`${backendUrl}/store/custom/add-booking`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      // Optional: If you need publishable keys passed manually (often needed for custom routes)
+      "x-publishable-api-key": process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "",
     },
     body: JSON.stringify({
       variant_id: variantId,
       quantity,
       country_code: countryCode,
-      therapist_id: therapistId, // This triggers the dynamic price logic in backend
+      therapist_id: therapistId,
       metadata: {
         appointment_slot: slot
       }
@@ -156,12 +157,14 @@ export async function createCustomTherapistCart({
   })
 
   if (!res.ok) {
-    throw new Error("Failed to create custom booking cart")
+    // Log the error text to help debugging if it fails again
+    const errorText = await res.text()
+    console.error("Custom Booking Error:", errorText)
+    throw new Error(`Failed to create custom booking cart: ${res.status} ${res.statusText}`)
   }
 
   const data = await res.json()
   
-  // 2. The API should return the cart ID. We set it in the cookie so the user "owns" this cart.
   if (data.cart_id) {
     await setCartId(data.cart_id)
     return await retrieveCart(data.cart_id, undefined, true)

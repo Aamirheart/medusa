@@ -5,7 +5,7 @@ import { HttpTypes } from "@medusajs/types"
 import { Button, Heading, Text, Input, Label, clx } from "@medusajs/ui"
 import { formatCurrency } from "@lib/util/money"
 import { 
-  createCustomTherapistCart, // <--- CHANGED: Import your new custom function
+  createCustomTherapistCart, 
   updateCart, 
   applyPromotions, 
   initiatePaymentSession, 
@@ -21,7 +21,7 @@ type BookingCheckoutProps = {
   region: HttpTypes.StoreRegion
   countryCode: string
   slot: string
-  therapistId: string // <--- CHANGED: Added prop
+  therapistId: string 
   close: () => void
 }
 
@@ -31,7 +31,7 @@ export default function BookingCheckout({
   region, 
   countryCode, 
   slot,
-  therapistId, // <--- CHANGED: Receive prop
+  therapistId, 
   close 
 }: BookingCheckoutProps) {
   const [cart, setCart] = useState<HttpTypes.StoreCart | null>(null)
@@ -62,15 +62,14 @@ export default function BookingCheckout({
         const providers = await listCartPaymentMethods(region.id)
         setPaymentProviders(providers || [])
 
-        // --- CHANGED: Use custom function to hit backend API ---
+        // Call backend API to create cart with dynamic price
         const newCart = await createCustomTherapistCart({
           variantId: variant.id,
           quantity: 1,
           countryCode,
-          therapistId: therapistId, // Backend uses this to set dynamic price
+          therapistId: therapistId, 
           slot: slot
         })
-        // ------------------------------------------------------
 
         setCart(newCart)
       } catch (err) {
@@ -80,7 +79,7 @@ export default function BookingCheckout({
       }
     }
     initBooking()
-  }, [variant.id, countryCode, region.id, slot, therapistId]) // <--- CHANGED: Added therapistId dep
+  }, [variant.id, countryCode, region.id, slot, therapistId])
 
   // 2. Handle Customer Details Submit
   const handleDetailsSubmit = async () => {
@@ -112,7 +111,7 @@ export default function BookingCheckout({
       }, cart.id)
       
       setCart(updatedCart)
-      setFormStep("payment") // Move to payment step
+      setFormStep("payment") 
     } catch (err) {
       console.error("Failed to update customer details", err)
     } finally {
@@ -245,16 +244,24 @@ export default function BookingCheckout({
                 {/* Order Summary */}
                 <div className="bg-gray-50 p-4 rounded-lg space-y-2 border">
                     <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Consultation Fee</span>
-                        {/* Ensure subtotal handles potential nulls safely */}
-                        <span>{formatCurrency(cart.subtotal ?? 0, cart.currency_code)}</span>
+                        {/* 1. Item Title */}
+                        <span className="text-gray-600">
+                          {cart.items?.[0]?.title || "Consultation Fee"}
+                        </span>
+                        
+                        {/* 2. Item Price */}
+                        <span>
+                          {formatCurrency(cart.subtotal ?? 0, cart.currency_code)}
+                        </span>
                     </div>
+
                     {cart.discount_total > 0 && (
                         <div className="flex justify-between text-sm text-green-600">
                             <span>Discount</span>
                             <span>-{formatCurrency(cart.discount_total, cart.currency_code)}</span>
                         </div>
                     )}
+                    
                     <div className="border-t pt-2 flex justify-between font-bold mt-2">
                         <span>Total</span>
                         <span>{formatCurrency(cart.total ?? 0, cart.currency_code)}</span>
