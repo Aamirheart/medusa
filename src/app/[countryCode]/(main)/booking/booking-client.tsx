@@ -1,10 +1,10 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { Button, Heading, Text, clx, Container } from "@medusajs/ui"
+import { Button, Heading, Text, clx } from "@medusajs/ui"
 import { HttpTypes } from "@medusajs/types"
-import BookingCheckout from "./booking-checkout" 
-import { User } from "@medusajs/icons" // Import an icon for visual flair
+import BookingCheckout from "./booking-checkout"
+import { User } from "@medusajs/icons"
 
 type BookingClientProps = {
   slotsData: {
@@ -17,19 +17,19 @@ type BookingClientProps = {
   region: HttpTypes.StoreRegion
 }
 
-// 1. Define Available Therapists (Matching your backend logic)
+// 1. Define Therapists with Multipliers
 const THERAPISTS = [
   { 
     id: "10", 
-    name: "Dr. Standard", 
+    name: "Dr. Aamir (Standard)", 
     specialty: "General Therapy", 
-    price: 1000 
+    multiplier: 1 // Pays Base Price (e.g., 1000 INR)
   },
   { 
     id: "11", 
-    name: "Dr. Specialist", 
+    name: "Dr. Sarah (Specialist)", 
     specialty: "Advanced Care", 
-    price: 2000 // Backend logic: if id === "11", price is 2000
+    multiplier: 2 // Pays 2x Base Price (e.g., 2000 INR)
   }
 ]
 
@@ -41,15 +41,31 @@ export default function BookingClient({
   region,
 }: BookingClientProps) {
   
-  // 2. Add State for Selected Therapist (Default to first one)
   const [selectedTherapistId, setSelectedTherapistId] = useState<string>(THERAPISTS[0].id)
-  
-  const [selectedDate, setSelectedDate] = useState<string>(slotsData.dates[0])
+  const [selectedDate, setSelectedDate] = useState<string>(slotsData?.dates?.[0] || "")
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
 
+  // 1. CLEAN URL LOGIC
+  // If we are in "in" (India), keep the URL clean (empty string). 
+  // Else use the country code (e.g. "us").
+  const cleanCountryCode = countryCode === "in" ? "" : countryCode
+
+  // 2. PRICING LOGIC
+  // Medusa has already given us the correct price for this Region (INR or USD).
+  const basePrice = variant?.calculated_price?.calculated_amount || 0
+  
+  const formatPrice = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: region?.currency_code?.toUpperCase() || "INR",
+    }).format(amount)
+  }
+
   // Filter slots for the selected date
   const availableTimeSlots = useMemo(() => {
+    if (!slotsData?.Slots) return []
+    
     return slotsData.Slots.filter(slot => slot.startsWith(selectedDate))
       .map(slot => {
         const timePart = slot.split(" ")[1] 
@@ -58,7 +74,7 @@ export default function BookingClient({
           display: timePart.slice(0, 5) 
         }
       })
-  }, [selectedDate, slotsData.Slots])
+  }, [selectedDate, slotsData])
 
   const handleBookClick = () => {
     if (selectedSlot) {
@@ -66,51 +82,65 @@ export default function BookingClient({
     }
   }
 
-  // Helper to get current therapist details
   const currentTherapist = THERAPISTS.find(t => t.id === selectedTherapistId)
+  // Calculate price: Base Region Price * Therapist Multiplier
+  const currentPrice = basePrice * (currentTherapist?.multiplier || 1)
+
+  // Safety Check
+  if (!product || !region) {
+    return (
+      <div className="p-8 text-center border rounded-lg bg-gray-50">
+        <Heading level="h2" className="text-red-500">Configuration Error</Heading>
+        <Text>Product or Region not found. Please check Medusa Admin.</Text>
+      </div>
+    )
+  }
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
       
-      {/* --- NEW SECTION: Therapist Selection --- */}
+      {/* SECTION 1: Therapist Selection */}
       <div className="mb-8">
         <Heading level="h2" className="text-lg mb-4">1. Choose your Therapist</Heading>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {THERAPISTS.map((therapist) => (
-            <div 
-              key={therapist.id}
-              onClick={() => setSelectedTherapistId(therapist.id)}
-              className={clx(
-                "cursor-pointer p-4 rounded-lg border transition-all flex items-start gap-4",
-                selectedTherapistId === therapist.id
-                  ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600"
-                  : "border-gray-200 hover:border-gray-300 bg-white"
-              )}
-            >
-              <div className={clx(
-                "p-2 rounded-full",
-                selectedTherapistId === therapist.id ? "bg-blue-200 text-blue-700" : "bg-gray-100 text-gray-500"
-              )}>
-                <User />
+          {THERAPISTS.map((therapist) => {
+            const price = basePrice * therapist.multiplier
+
+            return (
+              <div 
+                key={therapist.id}
+                onClick={() => setSelectedTherapistId(therapist.id)}
+                className={clx(
+                  "cursor-pointer p-4 rounded-lg border transition-all flex items-start gap-4",
+                  selectedTherapistId === therapist.id
+                    ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600"
+                    : "border-gray-200 hover:border-gray-300 bg-white"
+                )}
+              >
+                <div className={clx(
+                  "p-2 rounded-full",
+                  selectedTherapistId === therapist.id ? "bg-blue-200 text-blue-700" : "bg-gray-100 text-gray-500"
+                )}>
+                  <User />
+                </div>
+                <div>
+                  <Text className="font-bold text-base">{therapist.name}</Text>
+                  <Text className="text-sm text-gray-500">{therapist.specialty}</Text>
+                  <Text className="text-sm font-medium mt-1">
+                    {formatPrice(price)}
+                  </Text>
+                </div>
               </div>
-              <div>
-                <Text className="font-bold text-base">{therapist.name}</Text>
-                <Text className="text-sm text-gray-500">{therapist.specialty}</Text>
-                <Text className="text-sm font-medium mt-1">
-                  {therapist.price} {region.currency_code.toUpperCase()}
-                </Text>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
-      {/* ---------------------------------------- */}
 
-      {/* 2. Date Selector (Updated heading number) */}
+      {/* SECTION 2: Date Selector */}
       <div className="mb-8">
         <Heading level="h2" className="text-lg mb-4">2. Select Date</Heading>
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {slotsData.dates.map((date) => (
+          {slotsData?.dates?.map((date) => (
             <button
               key={date}
               onClick={() => {
@@ -130,7 +160,7 @@ export default function BookingClient({
         </div>
       </div>
 
-      {/* 3. Time Slot Grid (Updated heading number) */}
+      {/* SECTION 3: Time Slot Grid */}
       <div className="mb-8">
         <Heading level="h2" className="text-lg mb-4">3. Select Time</Heading>
         
@@ -156,7 +186,7 @@ export default function BookingClient({
         )}
       </div>
 
-      {/* 4. Action Button */}
+      {/* SECTION 4: Action Button */}
       <div className="border-t pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
          <div className="text-sm text-gray-600">
             Summary: <span className="font-bold text-black">{currentTherapist?.name}</span> @ {selectedSlot ? selectedSlot : "..."}
@@ -169,19 +199,19 @@ export default function BookingClient({
           onClick={handleBookClick}
           className="w-full sm:w-auto"
         >
-          Book for {currentTherapist?.price} {region.currency_code.toUpperCase()}
+          Book for {formatPrice(currentPrice)}
         </Button>
       </div>
 
-      {/* 5. Pass selectedTherapistId to Checkout */}
-     {isCheckoutOpen && selectedSlot && (
+      {/* SECTION 5: Checkout Modal */}
+      {isCheckoutOpen && selectedSlot && (
         <BookingCheckout 
           product={product}
           variant={variant}
-          countryCode={countryCode}
+          countryCode={cleanCountryCode} // PASSING CLEAN CODE (empty string for IN)
           region={region}
           slot={selectedSlot}
-          therapistId={selectedTherapistId} // <--- UPDATED: Passing dynamic ID
+          therapistId={selectedTherapistId}
           close={() => setIsCheckoutOpen(false)}
         />
       )}

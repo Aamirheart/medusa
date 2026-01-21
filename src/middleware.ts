@@ -1,9 +1,13 @@
+// src/middleware.ts
 import { HttpTypes } from "@medusajs/types"
 import { NextRequest, NextResponse } from "next/server"
 
 const BACKEND_URL = process.env.MEDUSA_BACKEND_URL
 const PUBLISHABLE_API_KEY = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY
-const DEFAULT_REGION = process.env.NEXT_PUBLIC_DEFAULT_REGION || "us"
+
+// 1. HARDCODE THIS TEMPORARILY if your env var isn't loading, or ensure .env.local is correct.
+// This ensures that visiting /booking automatically means /in/booking
+const DEFAULT_REGION = process.env.NEXT_PUBLIC_DEFAULT_REGION || "in"
 
 const regionMapCache = {
   regionMap: new Map<string, HttpTypes.StoreRegion>(),
@@ -13,17 +17,12 @@ const regionMapCache = {
 async function getRegionMap(cacheId: string) {
   const { regionMap, regionMapUpdated } = regionMapCache
 
-  if (!BACKEND_URL) {
-    throw new Error(
-      "Middleware.ts: Error fetching regions. Did you set up regions in your Medusa Admin and define a MEDUSA_BACKEND_URL environment variable? Note that the variable is no longer named NEXT_PUBLIC_MEDUSA_BACKEND_URL."
-    )
-  }
+  if (!BACKEND_URL) throw new Error("Missing MEDUSA_BACKEND_URL")
 
   if (
     !regionMap.keys().next().value ||
     regionMapUpdated < Date.now() - 3600 * 1000
   ) {
-    // Fetch regions from Medusa. We can't use the JS client here because middleware is running on Edge and the client needs a Node environment.
     const { regions } = await fetch(`${BACKEND_URL}/store/regions`, {
       headers: {
         "x-publishable-api-key": PUBLISHABLE_API_KEY!,
@@ -32,24 +31,11 @@ async function getRegionMap(cacheId: string) {
         revalidate: 3600,
         tags: [`regions-${cacheId}`],
       },
-      cache: "force-cache",
-    }).then(async (response) => {
-      const json = await response.json()
+    }).then((res) => res.json())
 
-      if (!response.ok) {
-        throw new Error(json.message)
-      }
+    if (!regions?.length) throw new Error("No regions found")
 
-      return json
-    })
-
-    if (!regions?.length) {
-      throw new Error(
-        "No regions found. Please set up regions in your Medusa Admin."
-      )
-    }
-
-    // Create a map of country codes to regions.
+    regionMapCache.regionMap.clear()
     regions.forEach((region: HttpTypes.StoreRegion) => {
       region.countries?.forEach((c) => {
         regionMapCache.regionMap.set(c.iso_2 ?? "", region)
@@ -63,110 +49,76 @@ async function getRegionMap(cacheId: string) {
 }
 
 /**
- * Fetches regions from Medusa and sets the region cookie.
- * @param request
- * @param response
+ * Determines the country code.
+ * PRIORITIZES DEFAULT REGION if no specific country is found.
  */
 async function getCountryCode(
   request: NextRequest,
-  regionMap: Map<string, HttpTypes.StoreRegion | number>
+  regionMap: Map<string, HttpTypes.StoreRegion>
 ) {
   try {
-    let countryCode
-
-    const vercelCountryCode = request.headers
-      .get("x-vercel-ip-country")
-      ?.toLowerCase()
-
+    // 1. Check if URL already has a country code (e.g. /in/booking)
     const urlCountryCode = request.nextUrl.pathname.split("/")[1]?.toLowerCase()
-
     if (urlCountryCode && regionMap.has(urlCountryCode)) {
-      countryCode = urlCountryCode
-    } else if (vercelCountryCode && regionMap.has(vercelCountryCode)) {
-      countryCode = vercelCountryCode
-    } else if (regionMap.has(DEFAULT_REGION)) {
-      countryCode = DEFAULT_REGION
-    } else if (regionMap.keys().next().value) {
-      countryCode = regionMap.keys().next().value
+      return urlCountryCode
     }
 
-    return countryCode
-  } catch (error) {
-    if (process.env.NODE_ENV === "development") {
-      console.error(
-        "Middleware.ts: Error getting the country code. Did you set up regions in your Medusa Admin and define a MEDUSA_BACKEND_URL environment variable? Note that the variable is no longer named NEXT_PUBLIC_MEDUSA_BACKEND_URL."
-      )
+    // 2. FORCE Default Region for clean URLs
+    // If the user visits /booking, we return "in"
+    if (regionMap.has(DEFAULT_REGION)) {
+      return DEFAULT_REGION
     }
+
+    // 3. Fallback
+    return regionMap.keys().next().value
+  } catch (error) {
+    return DEFAULT_REGION
   }
 }
 
-/**
- * Middleware to handle region selection and onboarding status.
- */
-// src/middleware.ts
-
-// ... (keep imports and helper functions like getRegionMap and getCountryCode exactly as they are) ...
-
-/**
- * Middleware to handle region selection and onboarding status.
- */
 export async function middleware(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const pathname = request.nextUrl.pathname
 
-  // Retrieve or create a cache ID
-  let cacheIdCookie = request.cookies.get("_medusa_cache_id")
-  let cacheId = cacheIdCookie?.value || crypto.randomUUID()
-
-  const regionMap = await getRegionMap(cacheId)
-  const countryCode = regionMap && (await getCountryCode(request, regionMap))
-
-  const urlHasCountryCode =
-    countryCode && pathname.split("/")[1].includes(countryCode)
-
-  // Check if the URL is a static asset or API route (already handled by config matcher, but good safety)
   if (pathname.includes(".") || pathname.startsWith("/api")) {
     return NextResponse.next()
   }
 
-  // 1. If the URL already has the country code (e.g. user manually typed /us/booking), let it pass.
+  const cacheId = request.cookies.get("_medusa_cache_id")?.value || crypto.randomUUID()
+  const regionMap = await getRegionMap(cacheId)
+  const countryCode = await getCountryCode(request, regionMap)
+
+  const urlHasCountryCode = countryCode && pathname.split("/")[1].includes(countryCode)
+
+  // A. If the URL is ALREADY explicit (e.g. /in/booking), just let it pass.
   if (urlHasCountryCode) {
-    const response = NextResponse.next()
-    if (!cacheIdCookie) {
-      response.cookies.set("_medusa_cache_id", cacheId, { maxAge: 60 * 60 * 24 })
-    }
-    return response
+    return NextResponse.next()
   }
 
-  // 2. If NO country code in URL, REWRITE to the correct region path.
-  // This keeps the browser URL as "/booking" but renders "/in/booking".
+  // B. REWRITE LOGIC (The Magic Part)
+  // If the URL is clean (e.g. /booking), we REWRITE it to /in/booking
+  // The user sees "/booking", but Next.js renders "/in/booking"
   if (countryCode) {
-    const rewritePath = pathname === "/" ? "" : pathname
-    const queryString = request.nextUrl.search ? request.nextUrl.search : ""
-    
-    // Construct the internal URL: /<countryCode>/<path>
-    const rewriteUrl = new URL(`/${countryCode}${rewritePath}${queryString}`, request.url)
-    
-    const response = NextResponse.rewrite(rewriteUrl)
-    
-    // Ensure the cache cookie is set on the rewritten response
-    if (!cacheIdCookie) {
-      response.cookies.set("_medusa_cache_id", cacheId, { maxAge: 60 * 60 * 24 })
-    }
-    
+    const requestHeaders = new Headers(request.headers)
+    requestHeaders.set("x-country-code", countryCode)
+
+    // Rewrite the internal URL to include the country code
+    // User sees: localhost:8000/booking
+    // Server processes: localhost:8000/in/booking
+    const response = NextResponse.rewrite(
+      new URL(`/${countryCode}${pathname}${request.nextUrl.search}`, request.url),
+      {
+        request: {
+          headers: requestHeaders,
+        },
+      }
+    )
     return response
   }
 
-  // 3. Fallback if configuration is completely missing
-  return new NextResponse(
-    "No valid regions configured. Please set up regions with countries in your Medusa Admin.",
-    { status: 500 }
-  )
+  return NextResponse.next()
 }
 
 export const config = {
-  matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|images|assets|png|svg|jpg|jpeg|gif|webp).*)",
-  ],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 }
-
