@@ -119,6 +119,10 @@ export async function createInstantCart({
     throw new Error(error.message || "Failed to create instant cart")
   }
 }
+
+/**
+ * FIXED: Validates inputs to prevent 400 Bad Request
+ */
 export async function createCustomTherapistCart({
   variantId,
   quantity,
@@ -132,16 +136,20 @@ export async function createCustomTherapistCart({
   therapistId: string
   slot: string
 }) {
-  // 1. Define the Backend URL correctly
-  // Use the environment variable if available, otherwise default to standard Medusa port 9000
+  // 1. STRICT VALIDATION to stop 400 Errors
+  if (!variantId) throw new Error("createCustomTherapistCart: Missing 'variantId'")
+  if (!countryCode) throw new Error("createCustomTherapistCart: Missing 'countryCode'")
+  if (!therapistId) throw new Error("createCustomTherapistCart: Missing 'therapistId'")
+
+  // 2. Debug Log (Check your Next.js Server Terminal)
+  console.log("🚀 Creating Custom Cart Payload:", { variantId, countryCode, therapistId, slot })
+
   const backendUrl = process.env.MEDUSA_BACKEND_URL || "http://localhost:9000"
 
-  // 2. Update the fetch call to use backendUrl instead of NEXT_PUBLIC_BASE_URL
   const res = await fetch(`${backendUrl}/store/custom/add-booking`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      // Optional: If you need publishable keys passed manually (often needed for custom routes)
       "x-publishable-api-key": process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "",
     },
     body: JSON.stringify({
@@ -157,17 +165,24 @@ export async function createCustomTherapistCart({
   })
 
   if (!res.ok) {
-    // Log the error text to help debugging if it fails again
     const errorText = await res.text()
-    console.error("Custom Booking Error:", errorText)
-    throw new Error(`Failed to create custom booking cart: ${res.status} ${res.statusText}`)
+    console.error("❌ Custom Booking Error:", errorText)
+    throw new Error(`Failed to create custom booking cart: ${res.status} ${res.statusText} - ${errorText}`)
   }
 
   const data = await res.json()
   
   if (data.cart_id) {
     await setCartId(data.cart_id)
-    return await retrieveCart(data.cart_id, undefined, true)
+    
+    // 3. Force Refresh: Ensure we get the correct region currency (INR) and Payment Sessions
+    const freshCart = await retrieveCart(data.cart_id, undefined, true)
+    
+    // Revalidate cache to update UI immediately
+    const cartCacheTag = await getCacheTag("carts")
+    revalidateTag(cartCacheTag)
+    
+    return freshCart
   }
   
   return null
@@ -262,12 +277,10 @@ export async function setShippingMethod({
 
   return sdk.store.cart
     .addShippingMethod(cartId, { option_id: shippingMethodId }, {}, headers)
-    // --- FIX: Revalidate cache so frontend updates immediately ---
     .then(async () => {
       const cartCacheTag = await getCacheTag("carts")
       revalidateTag(cartCacheTag)
     })
-    // -------------------------------------------------------------
     .catch(medusaError)
 }
 
@@ -279,13 +292,11 @@ export async function initiatePaymentSession(
 
   return sdk.store.payment
     .initiatePaymentSession(cart, data, {}, headers)
-    // --- FIX: Revalidate cache to ensure session appears ---
     .then(async (res) => {
       const cartCacheTag = await getCacheTag("carts")
       revalidateTag(cartCacheTag)
       return res
     })
-    // -------------------------------------------------------
     .catch(medusaError)
 }
 
