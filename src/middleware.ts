@@ -7,7 +7,7 @@ const PUBLISHABLE_API_KEY = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY
 
 // 1. HARDCODE THIS TEMPORARILY if your env var isn't loading, or ensure .env.local is correct.
 // This ensures that visiting /booking automatically means /in/booking
-const DEFAULT_REGION = process.env.NEXT_PUBLIC_DEFAULT_REGION || "in"
+const DEFAULT_REGION = process.env.NEXT_PUBLIC_DEFAULT_REGION
 
 const regionMapCache = {
   regionMap: new Map<string, HttpTypes.StoreRegion>(),
@@ -76,6 +76,8 @@ async function getCountryCode(
   }
 }
 
+// ... getRegionMap and getCountryCode functions (keep as is)
+
 export async function middleware(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const pathname = request.nextUrl.pathname
@@ -88,23 +90,21 @@ export async function middleware(request: NextRequest) {
   const regionMap = await getRegionMap(cacheId)
   const countryCode = await getCountryCode(request, regionMap)
 
-  const urlHasCountryCode = countryCode && pathname.split("/")[1].includes(countryCode)
+  // --- FIX: Use strict equality (===) instead of .includes() ---
+  // "booking".includes("in") is true, which caused the bug.
+  // "booking" === "in" is false, which is correct.
+  const urlHasCountryCode = countryCode && pathname.split("/")[1] === countryCode
 
   // A. If the URL is ALREADY explicit (e.g. /in/booking), just let it pass.
   if (urlHasCountryCode) {
     return NextResponse.next()
   }
 
-  // B. REWRITE LOGIC (The Magic Part)
-  // If the URL is clean (e.g. /booking), we REWRITE it to /in/booking
-  // The user sees "/booking", but Next.js renders "/in/booking"
+  // B. REWRITE LOGIC
   if (countryCode) {
     const requestHeaders = new Headers(request.headers)
     requestHeaders.set("x-country-code", countryCode)
 
-    // Rewrite the internal URL to include the country code
-    // User sees: localhost:8000/booking
-    // Server processes: localhost:8000/in/booking
     const response = NextResponse.rewrite(
       new URL(`/${countryCode}${pathname}${request.nextUrl.search}`, request.url),
       {

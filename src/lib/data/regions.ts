@@ -35,29 +35,46 @@ export const retrieveRegion = async (id: string) => {
     .catch(medusaError)
 }
 
+// ... imports
+
 const regionMap = new Map<string, HttpTypes.StoreRegion>()
 
 export const getRegion = async (countryCode: string) => {
   try {
+    // 1. Check strict cache first
     if (regionMap.has(countryCode)) {
       return regionMap.get(countryCode)
     }
 
+    // 2. Fetch if missing
     const regions = await listRegions()
 
     if (!regions) {
       return null
     }
 
+    // 3. Populate Map
+    regionMap.clear() // Clear to ensure fresh data
     regions.forEach((region) => {
       region.countries?.forEach((c) => {
         regionMap.set(c?.iso_2 ?? "", region)
       })
     })
 
-    const region = countryCode
-      ? regionMap.get(countryCode)
-      : regionMap.get("us")
+    // 4. Resolve Region
+    // Priority A: Exact match (e.g., "in" -> India Region)
+    let region = regionMap.get(countryCode)
+
+    // Priority B: Fallback to "All" (Rest of World)
+    // If exact match fails, we look for the region containing "us" (your "All" region)
+    if (!region) {
+      region = regionMap.get("us")
+    }
+    
+    // Priority C: Fallback to first available region (Safety net)
+    if (!region && regions.length > 0) {
+        region = regions[0]
+    }
 
     return region
   } catch (e: any) {
