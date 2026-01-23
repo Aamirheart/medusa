@@ -347,7 +347,7 @@ import { listCartPaymentMethods } from "@lib/data/payment"
 import { applyPromotions, initiatePaymentSession, retrieveCart } from "@lib/data/cart"
 import PaymentButton from "@modules/checkout/components/payment-button"
 import { clx } from "@medusajs/ui"
-import { User, Calendar, Mail, Phone, MapPin } from "lucide-react"
+import { User, Calendar, Mail, Phone, AlertCircle, Loader2 } from "lucide-react"
 
 type BookingCheckoutProps = {
   cart: HttpTypes.StoreCart
@@ -359,19 +359,50 @@ type BookingCheckoutProps = {
 export default function BookingCheckout({ cart: initialCart, region, therapistName, refreshCart }: BookingCheckoutProps) {
   const [cart, setCart] = useState(initialCart)
   const [paymentProviders, setPaymentProviders] = useState<HttpTypes.StorePaymentProvider[]>([])
+  const [isLoadingProviders, setIsLoadingProviders] = useState(true)
+  
   const [promoCode, setPromoCode] = useState("")
   const [promoError, setPromoError] = useState<string | null>(null)
   const [isApplyingPromo, setIsApplyingPromo] = useState(false)
-  const [activeProviderId, setActiveProviderId] = useState<string | null>(null)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
 
+  // 1. Fetch Payment Methods & Auto-Select if possible
   useEffect(() => {
-    const loadData = async () => {
-        const providers = await listCartPaymentMethods(region.id)
-        setPaymentProviders(providers || [])
-    }
-    loadData()
-  }, [region.id])
+    const initPayment = async () => {
+        setIsLoadingProviders(true)
+        try {
+            const providers = await listCartPaymentMethods(region.id)
+            setPaymentProviders(providers || [])
 
+            // AUTO-SELECT: If there is only 1 provider and no session is active, select it automatically.
+            const activeSession = cart.payment_collection?.payment_sessions?.find(s => s.status === "pending")
+            
+            if (providers && providers.length === 1 && !activeSession) {
+                await handlePaymentSelect(providers[0].id)
+            }
+        } catch (e) {
+            console.error("Failed to load payment providers", e)
+        } finally {
+            setIsLoadingProviders(false)
+        }
+    }
+    initPayment()
+  }, [region.id, cart.id]) // Re-run if cart changes (e.g. currency update)
+
+  // 2. Handle Payment Selection
+  const handlePaymentSelect = async (providerId: string) => {
+    setPaymentError(null)
+    try {
+        await initiatePaymentSession(cart, { provider_id: providerId })
+        const updated = await retrieveCart(cart.id, undefined, true)
+        if (updated) setCart(updated)
+    } catch (err: any) {
+        console.error(err)
+        setPaymentError(err.message || "Failed to initiate payment. Please try again.")
+    }
+  }
+
+  // 3. Promo Code Logic
   const handleApplyPromo = async () => {
     if (!promoCode) return
     setIsApplyingPromo(true)
@@ -380,18 +411,12 @@ export default function BookingCheckout({ cart: initialCart, region, therapistNa
         await applyPromotions([promoCode], cart.id)
         const updated = await retrieveCart(cart.id, undefined, true)
         setCart(updated)
+        setPromoCode("") // Clear input on success
     } catch (e: any) {
         setPromoError(e.message || "Invalid code")
     } finally {
         setIsApplyingPromo(false)
     }
-  }
-
-  const handlePaymentSelect = async (providerId: string) => {
-    setActiveProviderId(providerId)
-    await initiatePaymentSession(cart, { provider_id: providerId })
-    const updated = await retrieveCart(cart.id, undefined, true)
-    setCart(updated)
   }
 
   const activeSession = cart.payment_collection?.payment_sessions?.find(s => s.status === "pending")
@@ -417,7 +442,6 @@ export default function BookingCheckout({ cart: initialCart, region, therapistNa
             hour12: true
           })
       } else {
-          // Fallback if raw string is not standard Date format
           formattedDate = rawSlot 
       }
   }
@@ -425,42 +449,33 @@ export default function BookingCheckout({ cart: initialCart, region, therapistNa
   return (
     <div className="flex flex-col gap-6">
         
-        {/* 1. BOOKING DETAILS CARD */}
+        {/* SECTION: BOOKING DETAILS */}
         <div className="bg-[#E5F7F9] border border-[#00838F] rounded-2xl p-6 relative overflow-hidden">
             <div className="absolute top-0 right-0 p-4 opacity-10">
                 <Calendar size={100} color="#00838F" />
             </div>
-            
             <h3 className="font-bold text-[#043953] mb-4 flex items-center gap-2">
                 <Calendar className="w-5 h-5" /> Appointment Details
             </h3>
-
             <div className="space-y-3 relative z-10">
                 <div className="flex flex-col">
                     <span className="text-xs text-gray-500 uppercase font-bold">Therapist</span>
                     <span className="text-lg font-bold text-[#00838F]">{therapistName}</span>
                 </div>
-                
                 <div className="flex flex-col">
                     <span className="text-xs text-gray-500 uppercase font-bold">Date & Time</span>
                     <span className="text-base font-semibold text-gray-800">
                         {formattedDate} <span className="text-gray-400">|</span> {formattedTime}
                     </span>
                 </div>
-
-                <div className="flex flex-col">
-                    <span className="text-xs text-gray-500 uppercase font-bold">Session Type</span>
-                    <span className="text-sm font-medium text-gray-700">Online / Video Consultation</span>
-                </div>
             </div>
         </div>
 
-        {/* 2. PATIENT DETAILS CARD */}
+        {/* SECTION: PATIENT DETAILS */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6">
             <h3 className="font-bold text-[#043953] mb-4 flex items-center gap-2">
                 <User className="w-5 h-5" /> Patient Details
             </h3>
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="flex items-center gap-3">
                     <div className="bg-gray-100 p-2 rounded-full"><User size={16} className="text-gray-500"/></div>
@@ -469,7 +484,6 @@ export default function BookingCheckout({ cart: initialCart, region, therapistNa
                         <p className="font-medium text-gray-800">{shippingAddress?.first_name} {shippingAddress?.last_name}</p>
                     </div>
                 </div>
-
                 <div className="flex items-center gap-3">
                     <div className="bg-gray-100 p-2 rounded-full"><Mail size={16} className="text-gray-500"/></div>
                     <div>
@@ -477,7 +491,6 @@ export default function BookingCheckout({ cart: initialCart, region, therapistNa
                         <p className="font-medium text-gray-800">{cart.email}</p>
                     </div>
                 </div>
-
                 <div className="flex items-center gap-3">
                     <div className="bg-gray-100 p-2 rounded-full"><Phone size={16} className="text-gray-500"/></div>
                     <div>
@@ -488,7 +501,7 @@ export default function BookingCheckout({ cart: initialCart, region, therapistNa
             </div>
         </div>
 
-        {/* 3. PAYMENT SUMMARY */}
+        {/* SECTION: PAYMENT SUMMARY */}
         <div className="bg-[#F9FAFB] border border-gray-200 rounded-2xl p-6">
             <h3 className="font-bold text-gray-800 mb-4">Payment Summary</h3>
             
@@ -511,7 +524,6 @@ export default function BookingCheckout({ cart: initialCart, region, therapistNa
                 <span className="text-xl font-extrabold text-[#00838F]">{formatCurrency(cart.total ?? 0, cart.currency_code)}</span>
             </div>
 
-            {/* Promo Code */}
             <div className="mt-6">
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Have a Coupon?</label>
                 <div className="flex gap-2 mt-2">
@@ -533,31 +545,48 @@ export default function BookingCheckout({ cart: initialCart, region, therapistNa
             </div>
         </div>
 
-        {/* 4. PAYMENT METHODS */}
+        {/* SECTION: PAYMENT METHODS */}
         <div>
             <h3 className="font-bold text-gray-800 mb-4">Select Payment Method</h3>
+            
+            {/* Error Message */}
+            {paymentError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-4 flex items-center gap-2">
+                    <AlertCircle size={16} />
+                    {paymentError}
+                </div>
+            )}
+
             <div className="space-y-3">
-                {paymentProviders.length === 0 && <p className="text-gray-500 text-sm">Loading payment options...</p>}
-                
-                {paymentProviders.map((p) => (
-                    <div 
-                        key={p.id}
-                        onClick={() => handlePaymentSelect(p.id)}
-                        className={clx(
-                            "border rounded-xl p-4 cursor-pointer flex items-center justify-between transition-all",
-                            activeSession?.provider_id === p.id 
-                                ? "border-[#00838F] bg-[#E5F7F9] ring-1 ring-[#00838F]" 
-                                : "border-gray-200 hover:border-gray-300 bg-white"
-                        )}
-                    >
-                        <div className="flex items-center gap-3">
-                            <span className="capitalize font-medium text-gray-700">{p.id.replace(/_/g, " ")}</span>
+                {isLoadingProviders ? (
+                     <div className="flex items-center gap-2 text-gray-500 text-sm p-4 border rounded-xl">
+                        <Loader2 className="animate-spin w-4 h-4"/> Loading payment options...
+                     </div>
+                ) : paymentProviders.length === 0 ? (
+                     <div className="bg-yellow-50 text-yellow-800 p-4 rounded-xl text-sm border border-yellow-100">
+                        No payment methods configured for this region ({region.name}). Please contact support.
+                     </div>
+                ) : (
+                    paymentProviders.map((p) => (
+                        <div 
+                            key={p.id}
+                            onClick={() => handlePaymentSelect(p.id)}
+                            className={clx(
+                                "border rounded-xl p-4 cursor-pointer flex items-center justify-between transition-all",
+                                activeSession?.provider_id === p.id 
+                                    ? "border-[#00838F] bg-[#E5F7F9] ring-1 ring-[#00838F]" 
+                                    : "border-gray-200 hover:border-gray-300 bg-white"
+                            )}
+                        >
+                            <div className="flex items-center gap-3">
+                                <span className="capitalize font-medium text-gray-700">{p.id.replace(/_/g, " ")}</span>
+                            </div>
+                            <div className={clx("w-5 h-5 rounded-full border flex items-center justify-center", activeSession?.provider_id === p.id ? "border-[#00838F]" : "border-gray-300")}>
+                                {activeSession?.provider_id === p.id && <div className="w-3 h-3 bg-[#00838F] rounded-full" />}
+                            </div>
                         </div>
-                        <div className={clx("w-5 h-5 rounded-full border flex items-center justify-center", activeSession?.provider_id === p.id ? "border-[#00838F]" : "border-gray-300")}>
-                            {activeSession?.provider_id === p.id && <div className="w-3 h-3 bg-[#00838F] rounded-full" />}
-                        </div>
-                    </div>
-                ))}
+                    ))
+                )}
             </div>
         </div>
 
@@ -567,7 +596,7 @@ export default function BookingCheckout({ cart: initialCart, region, therapistNa
                  <PaymentButton cart={cart} data-testid="pay-button" />
              ) : (
                  <button disabled className="w-full bg-gray-200 text-gray-500 py-4 rounded-xl font-bold cursor-not-allowed">
-                    Select a Payment Method
+                    {paymentProviders.length === 0 ? "Unavailable" : "Select a Payment Method"}
                  </button>
              )}
         </div>
